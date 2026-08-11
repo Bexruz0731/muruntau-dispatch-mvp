@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { groundPosition } from '../../simulation/constants';
 
@@ -9,28 +10,28 @@ export default function LoadPointMarker({ name, position, color, queueCount = 0 
 
   return (
     <group position={[x, y, z]}>
-      {/* landing pad ring, flat on the ground */}
+      {/* landing pad ring, flat on the ground, glowing against the dark terrain */}
       <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.55, 0.75, 32]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.5} />
+        <ringGeometry args={[0.55, 0.8, 32]} />
+        <meshBasicMaterial color={color} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
 
       {/* thin pole */}
-      <mesh position={[0, POLE_HEIGHT / 2, 0]} castShadow>
+      <mesh position={[0, POLE_HEIGHT / 2, 0]}>
         <cylinderGeometry args={[0.06, 0.06, POLE_HEIGHT, 8]} />
-        <meshStandardMaterial color="#2b2f36" roughness={0.6} metalness={0.4} />
+        <meshStandardMaterial color="#8fa3c0" roughness={0.5} metalness={0.4} />
       </mesh>
 
-      {/* faint vertical beacon beam, subtle not neon */}
+      {/* vertical beacon beam */}
       <mesh position={[0, POLE_HEIGHT / 2, 0]}>
         <cylinderGeometry args={[0.16, 0.16, POLE_HEIGHT, 12, 1, true]} />
-        <meshBasicMaterial color={color} transparent opacity={0.12} depthWrite={false} />
+        <meshBasicMaterial color={color} transparent opacity={0.18} depthWrite={false} blending={THREE.AdditiveBlending} />
       </mesh>
 
       {/* beacon cap */}
-      <mesh position={[0, POLE_HEIGHT, 0]} castShadow>
+      <mesh position={[0, POLE_HEIGHT, 0]}>
         <octahedronGeometry args={[CAP_SIZE, 0]} />
-        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} roughness={0.3} />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={1.1} roughness={0.3} />
       </mesh>
 
       <Html position={[0, POLE_HEIGHT + CAP_SIZE + 0.6, 0]} center>

@@ -8,8 +8,6 @@ import {
   PIT_BOTTOM_RADIUS,
   PIT_DEPTH,
   terrainHeightAt,
-  levelForRadius,
-  rampFractionAt,
   groundPosition,
 } from './constants';
 
@@ -51,6 +49,15 @@ describe('terrainHeightAt', () => {
     expect(terrainHeightAt(0)).toBe(-PIT_DEPTH);
     expect(terrainHeightAt(PIT_TOP_RADIUS + 50)).toBe(0);
   });
+
+  it('монотонно не возрастает с ростом радиуса (чем ближе к краю, тем выше)', () => {
+    let prevHeight = terrainHeightAt(PIT_BOTTOM_RADIUS);
+    for (let r = PIT_BOTTOM_RADIUS + 1; r <= PIT_TOP_RADIUS; r += 1) {
+      const h = terrainHeightAt(r);
+      expect(h).toBeGreaterThanOrEqual(prevHeight);
+      prevHeight = h;
+    }
+  });
 });
 
 describe('groundPosition', () => {
@@ -61,18 +68,12 @@ describe('groundPosition', () => {
     expect(y).toBe(0);
   });
 
-  // Регрессия: маркеры точек погрузки должны стоять на ровной площадке, а
-  // не наезжать на угловую дугу пандуса своего уступа — иначе они «висят»
-  // над наклонной поверхностью вместо того, чтобы стоять на ней вровень.
-  it('LOAD_POINTS не попадают в дугу пандуса своего уступа', () => {
+  it('высота groundPosition для LOAD_POINTS совпадает с terrainHeightAt на том же радиусе', () => {
     for (const point of LOAD_POINTS) {
       const [x, z] = point.position;
+      const [, y] = groundPosition(point.position);
       const radius = Math.hypot(x, z);
-      const twoPi = Math.PI * 2;
-      const theta = ((Math.atan2(z, x) % twoPi) + twoPi) % twoPi;
-      const level = levelForRadius(radius);
-      const fraction = rampFractionAt(level - 1, theta);
-      expect(fraction, `${point.name} на пандусе уступа ${level - 1}`).toBeNull();
+      expect(y).toBe(terrainHeightAt(radius));
     }
   });
 });

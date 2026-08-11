@@ -5,9 +5,10 @@
 export const ENTRY_POINT = { id: 'entry', name: 'Въезд', position: [0, 26] };
 export const EXIT_POINT = { id: 'exit', name: 'Выезд', position: [3, 26] };
 
-// Точки погрузки расставлены на РАЗНЫХ уступах (level 1-4) под углом,
-// заведомо избегающим пандуса именно ЭТОГО уступа (см. rampFractionAt) —
-// иначе маркер норовит встать на наклонный въезд, а не на ровную площадку.
+// Точки погрузки на разных уступах (level 1-5), угол — просто для
+// равномерного визуального разброса по кругу (секторной привязки для
+// маркеров не требуется — в отличие от прежней версии, уступы здесь не
+// прорезаются пандусами, так что любая точка на уступе одинаково "ровная").
 export const LOAD_POINTS = [
   { id: 'lp-a', name: 'Точка A', position: [23.5, 0], color: '#f97316' },
   { id: 'lp-b', name: 'Точка B', position: [9.6, 16.6], color: '#38bdf8' },
@@ -18,7 +19,7 @@ export const LOAD_POINTS = [
 ];
 
 // Геометрия ступенчатой воронки карьера.
-export const PIT_RINGS = 6; // число уступов
+export const PIT_RINGS = 6; // число уступов (по радиусу/высоте)
 export const PIT_TOP_RADIUS = 30; // радиус верхнего края
 export const PIT_BOTTOM_RADIUS = 4; // радиус дна
 export const PIT_DEPTH = 18; // общая глубина воронки
@@ -26,16 +27,13 @@ export const PIT_DEPTH = 18; // общая глубина воронки
 export const BENCH_WIDTH = (PIT_TOP_RADIUS - PIT_BOTTOM_RADIUS) / PIT_RINGS;
 export const LEVEL_DROP = PIT_DEPTH / PIT_RINGS;
 
-// Спиральный пандус-серпантин: на уступе `level` узкая угловая дуга шириной
-// RAMP_ANGULAR_WIDTH, начинающаяся с rampStartAngle(level), заменяет
-// вертикальную стенку плавным спуском. Шаг поворота равен самой ширине дуги,
-// поэтому пандус уступа level+1 начинается ровно там, где заканчивается
-// пандус уступа level — визуально они читаются как один непрерывный виток,
-// а не разрозненные заплатки. Эти функции — общий источник правды и для
-// 3D-геометрии (PitTerrain), и для расстановки объектов на поверхности
-// (groundPosition ниже), и в будущем — для маршрута движения машин.
-export const RAMP_ANGULAR_WIDTH = ((Math.PI * 2) / PIT_RINGS) * 0.85;
-export const RAMP_ANGLE_STEP = RAMP_ANGULAR_WIDTH;
+// Каждый уступ разбит по кругу на SECTORS отдельных "кирпичей" с зазором
+// между ними — это и даёт чёткую раздельность (не сливаются в одно пятно),
+// без риска несостыковки геометрии, которым страдал прежний вариант с
+// прорезанными в стене пандусами.
+export const SECTORS = 10;
+export const SECTOR_ANGLE = (Math.PI * 2) / SECTORS;
+export const SECTOR_GAP = 0.055; // рад, зазор между соседними секторами
 
 export function levelOuterRadius(level) {
   return PIT_TOP_RADIUS - level * BENCH_WIDTH;
@@ -45,49 +43,24 @@ export function levelBenchY(level) {
   return -level * LEVEL_DROP;
 }
 
-export function rampStartAngle(level) {
-  return level * RAMP_ANGLE_STEP;
+export function sectorStartAngle(sector) {
+  return sector * SECTOR_ANGLE;
 }
 
-// Доля (0..1) прохождения пандуса уступа `level` на угле theta, или null,
-// если theta вне дуги этого пандуса (обычная ровная площадка).
-export function rampFractionAt(level, theta) {
-  const start = rampStartAngle(level);
-  const twoPi = Math.PI * 2;
-  let rel = (theta - start) % twoPi;
-  if (rel < 0) rel += twoPi;
-  if (rel <= RAMP_ANGULAR_WIDTH) return rel / RAMP_ANGULAR_WIDTH;
-  return null;
-}
-
-// Индексация здесь намеренно совпадает с PitTerrain.jsx: там уступ `L`
-// (в цикле треугольников L=1..PIT_RINGS) занимает радиус
-// [levelOuterRadius(L), levelOuterRadius(L-1)] на высоте levelBenchY(L), а
-// стена/пандус с индексом `wallLevel = L-1` соединяет его с уступом L-1
-// выше. Если снова трогаешь геометрию PitTerrain — проверь этот файл на
-// схождение (constants.test.js это отслеживает).
-export function levelForRadius(radius) {
-  let level = Math.floor((PIT_TOP_RADIUS - radius) / BENCH_WIDTH) + 1;
-  return Math.min(Math.max(level, 1), PIT_RINGS);
-}
-
-// Высота (y <= 0) рельефа в точке (радиус, угол): плоская площадка на своём
-// уступе почти везде, и плавный спуск вдоль дуги пандуса.
-export function terrainHeightAt(radius, theta = 0) {
-  if (radius >= PIT_TOP_RADIUS) return 0; // земля вокруг карьера (снаружи уступов)
+// Высота (y <= 0) рельефа на заданном расстоянии от центра. Уступы —
+// дискретные ровные площадки; секторные зазоры визуальные (см. PitTerrain),
+// на высоту не влияют, поэтому этой функции угол не нужен.
+export function terrainHeightAt(radius) {
+  if (radius >= PIT_TOP_RADIUS) return 0; // земля вокруг карьера
   if (radius <= PIT_BOTTOM_RADIUS) return levelBenchY(PIT_RINGS); // дно
 
-  const level = levelForRadius(radius);
-  const wallLevel = level - 1;
-  const f = rampFractionAt(wallLevel, theta);
-  if (f === null) return levelBenchY(level);
-  return levelBenchY(wallLevel) + (levelBenchY(level) - levelBenchY(wallLevel)) * f;
+  let level = Math.floor((PIT_TOP_RADIUS - radius) / BENCH_WIDTH) + 1;
+  level = Math.min(Math.max(level, 1), PIT_RINGS);
+  return levelBenchY(level);
 }
 
 // Переводит плоскую точку [x, z] в 3D-координату, лежащую на поверхности рельефа.
 export function groundPosition([x, z]) {
   const radius = Math.hypot(x, z);
-  const twoPi = Math.PI * 2;
-  const theta = ((Math.atan2(z, x) % twoPi) + twoPi) % twoPi;
-  return [x, terrainHeightAt(radius, theta), z];
+  return [x, terrainHeightAt(radius), z];
 }
