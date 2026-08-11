@@ -64,3 +64,32 @@ export function groundPosition([x, z]) {
   const radius = Math.hypot(x, z);
   return [x, terrainHeightAt(radius), z];
 }
+
+// Строит плавный путь (массив 3D-точек) от одной плоской точки к другой:
+// угол интерполируется по кратчайшей дуге (не через 359° в обратную
+// сторону), радиус и высота — линейно по t. Высота НЕ считывается со
+// ступенчатой terrainHeightAt на каждом шаге — иначе путь дёргался бы на
+// границах уступов; движение машины — отдельный, более плавный слой поверх
+// рельефа. Используется для маршрутов машин между фазами (см. simulation/store.js).
+export function buildRoutePoints(fromXZ, toXZ, fromY, toY, steps = 8) {
+  const [fx, fz] = fromXZ;
+  const [tx, tz] = toXZ;
+  const rFrom = Math.hypot(fx, fz);
+  const rTo = Math.hypot(tx, tz);
+  const thFrom = Math.atan2(fz, fx);
+  const thToRaw = Math.atan2(tz, tx);
+  const twoPi = Math.PI * 2;
+  let dTh = thToRaw - thFrom;
+  while (dTh > Math.PI) dTh -= twoPi;
+  while (dTh < -Math.PI) dTh += twoPi;
+
+  const points = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const th = thFrom + dTh * t;
+    const r = rFrom + (rTo - rFrom) * t;
+    const y = fromY + (toY - fromY) * t;
+    points.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+  }
+  return points;
+}

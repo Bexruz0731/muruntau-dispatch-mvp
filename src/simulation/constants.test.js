@@ -9,6 +9,7 @@ import {
   PIT_DEPTH,
   terrainHeightAt,
   groundPosition,
+  buildRoutePoints,
 } from './constants';
 
 describe('LOAD_POINTS', () => {
@@ -75,5 +76,29 @@ describe('groundPosition', () => {
       const radius = Math.hypot(x, z);
       expect(y).toBe(terrainHeightAt(radius));
     }
+  });
+});
+
+describe('buildRoutePoints', () => {
+  it('начинается и заканчивается в заданных точках с заданной высотой', () => {
+    const points = buildRoutePoints([0, 26], [23.5, 0], 5, -3, 8);
+    expect(points).toHaveLength(9);
+    expect(points[0][0]).toBeCloseTo(0);
+    expect(points[0][1]).toBeCloseTo(5);
+    expect(points[0][2]).toBeCloseTo(26);
+    expect(points[8][0]).toBeCloseTo(23.5);
+    expect(points[8][1]).toBeCloseTo(-3);
+    expect(points[8][2]).toBeCloseTo(0);
+  });
+
+  it('высота меняется монотонно от fromY к toY', () => {
+    const points = buildRoutePoints([0, 26], [23.5, 0], 5, -3, 8);
+    for (let i = 1; i < points.length; i++) {
+      expect(points[i][1]).toBeLessThanOrEqual(points[i - 1][1] + 1e-9);
+    }
+  });
+
+  it('по умолчанию возвращает 9 точек (steps=8)', () => {
+    expect(buildRoutePoints([0, 10], [10, 0], 0, 0)).toHaveLength(9);
   });
 });
