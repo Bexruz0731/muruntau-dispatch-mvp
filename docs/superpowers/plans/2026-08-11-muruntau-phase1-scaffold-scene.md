@@ -507,6 +507,7 @@ export default function CareerScene({ children }) {
         shadow-camera-bottom={-40}
       />
       <Sky
+        distance={450}
         sunPosition={[25, 40, 15]}
         turbidity={6}
         rayleigh={1.2}
