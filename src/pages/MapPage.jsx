@@ -1,7 +1,9 @@
+import CareerScene from '../components/scene/CareerScene';
+
 export default function MapPage() {
   return (
-    <div className="p-6 text-slate-600">
-      3D-сцена карьера появится в следующих задачах этого этапа.
+    <div className="w-full h-[calc(100vh-4rem)]">
+      <CareerScene />
     </div>
   );
 }
