@@ -8,6 +8,8 @@ import {
   PIT_BOTTOM_RADIUS,
   PIT_DEPTH,
   terrainHeightAt,
+  levelForRadius,
+  rampFractionAt,
   groundPosition,
 } from './constants';
 
@@ -57,5 +59,20 @@ describe('groundPosition', () => {
     expect(x).toBe(0);
     expect(z).toBe(PIT_TOP_RADIUS);
     expect(y).toBe(0);
+  });
+
+  // Регрессия: маркеры точек погрузки должны стоять на ровной площадке, а
+  // не наезжать на угловую дугу пандуса своего уступа — иначе они «висят»
+  // над наклонной поверхностью вместо того, чтобы стоять на ней вровень.
+  it('LOAD_POINTS не попадают в дугу пандуса своего уступа', () => {
+    for (const point of LOAD_POINTS) {
+      const [x, z] = point.position;
+      const radius = Math.hypot(x, z);
+      const twoPi = Math.PI * 2;
+      const theta = ((Math.atan2(z, x) % twoPi) + twoPi) % twoPi;
+      const level = levelForRadius(radius);
+      const fraction = rampFractionAt(level - 1, theta);
+      expect(fraction, `${point.name} на пандусе уступа ${level - 1}`).toBeNull();
+    }
   });
 });

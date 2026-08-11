@@ -60,18 +60,28 @@ export function rampFractionAt(level, theta) {
   return null;
 }
 
+// Индексация здесь намеренно совпадает с PitTerrain.jsx: там уступ `L`
+// (в цикле треугольников L=1..PIT_RINGS) занимает радиус
+// [levelOuterRadius(L), levelOuterRadius(L-1)] на высоте levelBenchY(L), а
+// стена/пандус с индексом `wallLevel = L-1` соединяет его с уступом L-1
+// выше. Если снова трогаешь геометрию PitTerrain — проверь этот файл на
+// схождение (constants.test.js это отслеживает).
+export function levelForRadius(radius) {
+  let level = Math.floor((PIT_TOP_RADIUS - radius) / BENCH_WIDTH) + 1;
+  return Math.min(Math.max(level, 1), PIT_RINGS);
+}
+
 // Высота (y <= 0) рельефа в точке (радиус, угол): плоская площадка на своём
 // уступе почти везде, и плавный спуск вдоль дуги пандуса.
 export function terrainHeightAt(radius, theta = 0) {
-  if (radius >= PIT_TOP_RADIUS) return 0; // земля вокруг карьера
+  if (radius >= PIT_TOP_RADIUS) return 0; // земля вокруг карьера (снаружи уступов)
   if (radius <= PIT_BOTTOM_RADIUS) return levelBenchY(PIT_RINGS); // дно
 
-  let level = Math.floor((PIT_TOP_RADIUS - radius) / BENCH_WIDTH);
-  level = Math.min(Math.max(level, 0), PIT_RINGS - 1);
-
-  const f = rampFractionAt(level, theta);
+  const level = levelForRadius(radius);
+  const wallLevel = level - 1;
+  const f = rampFractionAt(wallLevel, theta);
   if (f === null) return levelBenchY(level);
-  return levelBenchY(level) + (levelBenchY(level + 1) - levelBenchY(level)) * f;
+  return levelBenchY(wallLevel) + (levelBenchY(level) - levelBenchY(wallLevel)) * f;
 }
 
 // Переводит плоскую точку [x, z] в 3D-координату, лежащую на поверхности рельефа.
