@@ -16,6 +16,13 @@ export const FUEL_DEVIATION_YELLOW_MAX = 15; // 5-15% — жёлтый, > 15% �
 // тика, поэтому корректно работает и при произвольном вызове из тестов, и
 // при дрейфе реального setInterval. Топливо расходуется в TO_LOAD и
 // LOADING; пробег — в TO_LOAD и EXITING (ТЗ, раздел 5).
+//
+// Ставка расхода — truck.actualBurnRatePerHour (реальная физика КОНКРЕТНОЙ
+// машины), а не truck.fuelBurnRatePerHour (норма автопарка, с которой этот
+// факт сравнивается в deviationPercent). У обычных машин они совпадают; у
+// машин с засеянной аномалией MECHANICAL_FAULT (см. simulation/anomaly.js)
+// actualBurnRatePerHour выше нормы — именно так возникает ненулевое
+// отклонение, без изменения самой нормы.
 export function accrueFuelAndDistance(truck, now) {
   const cappedElapsed = Math.min(now - truck.phaseStartedAt, truck.phaseDurationMs);
   const deltaMs = Math.max(0, cappedElapsed - truck.phaseAccountedMs);
@@ -24,7 +31,7 @@ export function accrueFuelAndDistance(truck, now) {
 
   if (deltaMs > 0) {
     if (truck.phase === 'TO_LOAD' || truck.phase === 'LOADING') {
-      const deltaFuel = truck.fuelBurnRatePerHour * (deltaMs / 3600000);
+      const deltaFuel = truck.actualBurnRatePerHour * (deltaMs / 3600000);
       fuelConsumedThisShift += deltaFuel;
       fuelLevel = Math.max(0, fuelLevel - deltaFuel);
       movingMs += deltaMs;

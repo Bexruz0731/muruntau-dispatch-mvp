@@ -80,6 +80,7 @@ export function createTruck(now) {
     distanceThisShift: 0,
     movingMs: 0,
     fuelBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR,
+    actualBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR, // этап 5 (anomaly.js) сможет отклонить от нормы
   };
 }
 

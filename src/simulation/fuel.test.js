@@ -20,6 +20,7 @@ function makeTruck(overrides = {}) {
     distanceThisShift: 0,
     movingMs: 0,
     fuelBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR,
+    actualBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR,
     ...overrides,
   };
 }
@@ -82,5 +83,19 @@ describe('deviationPercent / statusColorForDeviation', () => {
   it('пока машина не двигалась, actualLPerHour равен норме (не делит на 0)', () => {
     const truck = makeTruck({ movingMs: 0 });
     expect(actualLPerHour(truck)).toBe(FALLBACK_FUEL_NORM_L_PER_HOUR);
+  });
+});
+
+describe('actualBurnRatePerHour vs fuelBurnRatePerHour', () => {
+  it('расход считается по actualBurnRatePerHour, а не по норме, если они различаются', () => {
+    const truck = makeTruck({ actualBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR * 1.5 });
+    const result = accrueFuelAndDistance(truck, 5000);
+    expect(result.fuelConsumedThisShift).toBeCloseTo(FALLBACK_FUEL_NORM_L_PER_HOUR * 1.5 * (5000 / 3600000));
+  });
+
+  it('повышенный actualBurnRatePerHour даёт положительное отклонение от нормы', () => {
+    let truck = makeTruck({ actualBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR * 1.5 });
+    truck = accrueFuelAndDistance(truck, 3600000); // час движения
+    expect(deviationPercent(truck)).toBeCloseTo(50); // +50%
   });
 });
