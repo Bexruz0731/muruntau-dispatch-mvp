@@ -1,13 +1,14 @@
 import CareerScene from '../components/scene/CareerScene';
 import PitTerrain from '../components/scene/PitTerrain';
 import LoadPointMarker from '../components/scene/LoadPointMarker';
+import Belt from '../components/scene/Belt';
 import Truck from '../components/scene/Truck';
 import RouteTube from '../components/scene/RouteTube';
 import DispatcherPanel from '../components/DispatcherPanel';
 import { LOAD_POINTS } from '../simulation/constants';
-import { useSimulationStore, getQueueCounts } from '../simulation/store';
+import { useSimulationStore, getQueueCounts, getBeltQueueCount } from '../simulation/store';
 
-const MOVING_PHASES = new Set(['TO_LOAD', 'EXITING']);
+const MOVING_PHASES = new Set(['TO_LOAD', 'EXITING', 'RETURNING']);
 
 export default function MapPage() {
   const trucks = useSimulationStore((s) => s.trucks);
@@ -17,12 +18,14 @@ export default function MapPage() {
 
   const queueCounts = getQueueCounts(trucks);
   const loadPointsWithQueue = LOAD_POINTS.map((lp) => ({ ...lp, queueCount: queueCounts[lp.id] || 0 }));
+  const beltQueueCount = getBeltQueueCount(trucks);
 
   return (
     <div className="w-full h-[calc(100vh-4rem)] flex">
       <div className="flex-1 min-w-0">
         <CareerScene>
           <PitTerrain />
+          <Belt queueCount={beltQueueCount} />
           {loadPointsWithQueue.map((lp) => (
             <LoadPointMarker
               key={lp.id}
@@ -45,6 +48,7 @@ export default function MapPage() {
       <DispatcherPanel
         trucks={trucks}
         loadPoints={loadPointsWithQueue}
+        beltQueueCount={beltQueueCount}
         events={events}
         mode={mode}
         onModeChange={setMode}
