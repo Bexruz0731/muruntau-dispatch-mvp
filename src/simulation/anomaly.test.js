@@ -4,6 +4,7 @@ import {
   loadingDurationForSeed,
   actualBurnRateForSeed,
   detectAnomaly,
+  buildAnomalyExplainPrompt,
   ANOMALY_SEED_PROBABILITY,
   IDLE_OVERRUN_MULTIPLIER_RANGE,
   MECHANICAL_FAULT_RATE_MULTIPLIER_RANGE,
@@ -111,5 +112,36 @@ describe('detectAnomaly', () => {
       fuelConsumedThisShift: FALLBACK_FUEL_NORM_L_PER_HOUR * 1.15,
     });
     expect(detectAnomaly(truck, 8000).anomalyType).toBeNull();
+  });
+});
+
+describe('buildAnomalyExplainPrompt', () => {
+  it('строит промпт по шаблону ТЗ для IDLE_OVERRUN', () => {
+    const truck = makeTruck({
+      phase: 'LOADING',
+      phaseAccountedMs: 13000,
+      anomalyType: 'IDLE_OVERRUN',
+      movingMs: 0,
+      fuelConsumedThisShift: 0,
+    });
+    const prompt = buildAnomalyExplainPrompt(truck, 8000);
+    expect(prompt).toContain('42');
+    expect(prompt).toContain('IDLE_OVERRUN');
+    expect(prompt).toContain('LOADING');
+    expect(prompt).toContain('13 сек');
+    expect(prompt).toContain('8 сек');
+  });
+
+  it('строит промпт по шаблону ТЗ для MECHANICAL_FAULT с процентом отклонения', () => {
+    const truck = makeTruck({
+      phase: 'TO_LOAD',
+      anomalyType: 'MECHANICAL_FAULT',
+      movingMs: 3600000,
+      fuelConsumedThisShift: FALLBACK_FUEL_NORM_L_PER_HOUR * 1.3,
+    });
+    const prompt = buildAnomalyExplainPrompt(truck, 8000);
+    expect(prompt).toContain('42');
+    expect(prompt).toContain('MECHANICAL_FAULT');
+    expect(prompt).toContain('+30.0%');
   });
 });

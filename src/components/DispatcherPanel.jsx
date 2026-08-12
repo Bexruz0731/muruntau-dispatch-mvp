@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { statusColorForQueue, buildDispatchExplainPrompt } from '../simulation/dispatch';
 import { deviationPercent, statusColorForDeviation } from '../simulation/fuel';
+import { buildAnomalyExplainPrompt } from '../simulation/anomaly';
+import { LOADING_DURATION_RANGE } from '../simulation/store';
 import ExplainButton from './ExplainButton';
 import { resolveWorkspaceSlug, WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG } from '../lib/anythingllm';
 
@@ -46,6 +48,12 @@ function TruckRow({ truck }) {
       {hasAnomaly && expanded && (
         <div className="mt-1 text-[11px] text-red-300 bg-red-950/40 border border-red-900 rounded px-2 py-1">
           {truck.anomalyRecommendation}
+          <ExplainButton
+            workspaceSlug={DISPATCH_WORKSPACE_SLUG}
+            variant="dark"
+            label="Объяснить причину"
+            buildPrompt={() => buildAnomalyExplainPrompt(truck, LOADING_DURATION_RANGE[1])}
+          />
         </div>
       )}
     </li>

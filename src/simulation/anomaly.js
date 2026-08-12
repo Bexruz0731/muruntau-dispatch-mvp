@@ -77,3 +77,13 @@ export function detectAnomaly(truck, normalLoadingDurationMs) {
 
   return { anomalyType: null, anomalyRecommendation: null };
 }
+
+// Промпт для сценария "Объяснить причину" (ТЗ, "Интеграция AnythingLLM",
+// сценарий 4) — дословно по шаблону из раздела "Аномалии".
+export function buildAnomalyExplainPrompt(truck, normalLoadingDurationMs) {
+  const dev = deviationPercent(truck);
+  const devStr = `${dev >= 0 ? '+' : ''}${dev.toFixed(1)}%`;
+  const normS = Math.round(normalLoadingDurationMs / 1000);
+  const elapsedS = Math.round(truck.phaseAccountedMs / 1000);
+  return `Объясни диспетчеру простым языком, почему машину ${truck.number} рекомендовано направить на технический осмотр. Причина: ${truck.anomalyType}. Отклонение расхода топлива: ${devStr}, текущая фаза: ${truck.phase}, время в фазе: ${elapsedS} сек (норма ~${normS} сек).`;
+}
