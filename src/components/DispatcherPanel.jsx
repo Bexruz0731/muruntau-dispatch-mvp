@@ -12,7 +12,9 @@ const PHASE_LABELS = {
   ENTERING: 'на въезде',
   TO_LOAD: 'едет к точке',
   LOADING: 'грузится',
-  EXITING: 'выезжает',
+  EXITING: 'едет на ленту',
+  UNLOADING: 'разгружается',
+  RETURNING: 'возвращается в карьер',
 };
 
 function TruckRow({ truck }) {
@@ -60,7 +62,7 @@ function TruckRow({ truck }) {
   );
 }
 
-export default function DispatcherPanel({ trucks, loadPoints, events, mode, onModeChange }) {
+export default function DispatcherPanel({ trucks, loadPoints, beltQueueCount, events, mode, onModeChange }) {
   return (
     <aside className="w-80 shrink-0 bg-slate-950 text-slate-200 border-l border-slate-800 flex flex-col overflow-hidden">
       <div className="p-3 border-b border-slate-800">
@@ -97,7 +99,7 @@ export default function DispatcherPanel({ trucks, loadPoints, events, mode, onMo
       </div>
 
       <div className="p-3 border-b border-slate-800">
-        <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Точки погрузки</div>
+        <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Очереди</div>
         <ul className="space-y-1 text-xs">
           {loadPoints.map((lp) => (
             <li key={lp.id} className="flex items-center justify-between">
@@ -110,6 +112,15 @@ export default function DispatcherPanel({ trucks, loadPoints, events, mode, onMo
               </span>
             </li>
           ))}
+          <li className="flex items-center justify-between">
+            <span className="text-slate-300">Лента</span>
+            <span
+              className="px-1.5 py-0.5 rounded font-mono min-w-[1.5rem] text-center"
+              style={{ backgroundColor: statusColorForQueue(beltQueueCount), color: '#0a0f1a' }}
+            >
+              {beltQueueCount}
+            </span>
+          </li>
         </ul>
       </div>
 
