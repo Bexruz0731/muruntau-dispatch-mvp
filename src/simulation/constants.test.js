@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ENTRY_POINT,
-  EXIT_POINT,
+  BELT_POINT,
   LOAD_POINTS,
   PIT_RINGS,
   PIT_TOP_RADIUS,
@@ -28,9 +28,14 @@ describe('LOAD_POINTS', () => {
   });
 });
 
-describe('ENTRY_POINT / EXIT_POINT', () => {
+describe('ENTRY_POINT / BELT_POINT', () => {
   it('заданы в разных точках', () => {
-    expect(ENTRY_POINT.position).not.toEqual(EXIT_POINT.position);
+    expect(ENTRY_POINT.position).not.toEqual(BELT_POINT.position);
+  });
+
+  it('BELT_POINT находится за пределами воронки (снаружи PIT_TOP_RADIUS)', () => {
+    const [x, z] = BELT_POINT.position;
+    expect(Math.hypot(x, z)).toBeGreaterThan(PIT_TOP_RADIUS);
   });
 });
 
