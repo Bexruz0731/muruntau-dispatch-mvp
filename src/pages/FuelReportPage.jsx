@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useSimulationStore } from '../simulation/store';
-import { deviationPercent, statusColorForDeviation } from '../simulation/fuel';
+import { statusColorForDeviation } from '../simulation/fuel';
+import { buildFuelReportRows, buildFuelSummaryPrompt } from '../simulation/fuelReportSummary';
+import ExplainButton from '../components/ExplainButton';
+import { resolveWorkspaceSlug, WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG } from '../lib/anythingllm';
+
+const SUMMARY_WORKSPACE_SLUG = resolveWorkspaceSlug(WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG);
 
 const COLUMNS = [
   { key: 'truckNumber', label: '№' },
@@ -11,26 +16,6 @@ const COLUMNS = [
   { key: 'status', label: 'Статус' },
 ];
 
-function buildRows(trucks, sessionLog) {
-  const activeRows = trucks.map((t) => ({
-    truckNumber: t.number,
-    distanceKm: t.distanceThisShift / 1000,
-    fuelConsumed: t.fuelConsumedThisShift,
-    normLPerHour: t.fuelBurnRatePerHour,
-    deviation: deviationPercent(t),
-    status: 'активна',
-  }));
-  const doneRows = sessionLog.map((r) => ({
-    truckNumber: r.truckNumber,
-    distanceKm: r.totalDistanceM / 1000,
-    fuelConsumed: r.totalFuelConsumed,
-    normLPerHour: r.normLPerHour,
-    deviation: r.deviationPercent,
-    status: r.status,
-  }));
-  return [...activeRows, ...doneRows];
-}
-
 export default function FuelReportPage() {
   const trucks = useSimulationStore((s) => s.trucks);
   const sessionLog = useSimulationStore((s) => s.sessionLog);
@@ -38,7 +23,7 @@ export default function FuelReportPage() {
   const [sortDir, setSortDir] = useState('asc');
 
   const rows = useMemo(() => {
-    const all = buildRows(trucks, sessionLog);
+    const all = buildFuelReportRows(trucks, sessionLog);
     return [...all].sort((a, b) => {
       const va = a[sortKey];
       const vb = b[sortKey];
@@ -60,7 +45,15 @@ export default function FuelReportPage() {
 
   return (
     <div className="p-6">
-      <h1 className="text-xl font-semibold mb-4 text-slate-800">Полный отчёт по топливу</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold text-slate-800">Полный отчёт по топливу</h1>
+        <ExplainButton
+          workspaceSlug={SUMMARY_WORKSPACE_SLUG}
+          variant="light"
+          label="Сформировать сводку"
+          buildPrompt={() => buildFuelSummaryPrompt(trucks, sessionLog)}
+        />
+      </div>
       <div className="overflow-x-auto border border-slate-200 rounded-lg">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-100">
