@@ -60,6 +60,13 @@ describe('accrueFuelAndDistance', () => {
     expect(result.fuelConsumedThisShift).toBe(0);
   });
 
+  it('в фазе RETURNING тоже начисляет пробег, но не топливо', () => {
+    const truck = makeTruck({ phase: 'RETURNING' });
+    const result = accrueFuelAndDistance(truck, 5000);
+    expect(result.distanceThisShift).toBeCloseTo(50);
+    expect(result.fuelConsumedThisShift).toBe(0);
+  });
+
   it('не начисляет больше длительности фазы, даже если now намного больше', () => {
     const truck = makeTruck();
     const result = accrueFuelAndDistance(truck, 999999);

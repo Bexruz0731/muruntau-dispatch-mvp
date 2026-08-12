@@ -15,7 +15,7 @@ export const FUEL_DEVIATION_YELLOW_MAX = 15; // 5-15% — жёлтый, > 15% �
 // реальной разнице времени, а не по предположению о фиксированном шаге
 // тика, поэтому корректно работает и при произвольном вызове из тестов, и
 // при дрейфе реального setInterval. Топливо расходуется в TO_LOAD и
-// LOADING; пробег — в TO_LOAD и EXITING (ТЗ, раздел 5).
+// LOADING; пробег — в TO_LOAD, EXITING и RETURNING (реальное движение).
 //
 // Ставка расхода — truck.actualBurnRatePerHour (реальная физика КОНКРЕТНОЙ
 // машины), а не truck.fuelBurnRatePerHour (норма автопарка, с которой этот
@@ -36,7 +36,7 @@ export function accrueFuelAndDistance(truck, now) {
       fuelLevel = Math.max(0, fuelLevel - deltaFuel);
       movingMs += deltaMs;
     }
-    if (truck.phase === 'TO_LOAD' || truck.phase === 'EXITING') {
+    if (truck.phase === 'TO_LOAD' || truck.phase === 'EXITING' || truck.phase === 'RETURNING') {
       const legLength = pathLength(truck.path);
       distanceThisShift += legLength * (deltaMs / truck.phaseDurationMs);
     }
