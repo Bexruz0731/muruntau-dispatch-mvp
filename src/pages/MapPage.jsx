@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import CareerScene from '../components/scene/CareerScene';
 import PitTerrain from '../components/scene/PitTerrain';
 import LoadPointMarker from '../components/scene/LoadPointMarker';
@@ -14,14 +13,7 @@ export default function MapPage() {
   const trucks = useSimulationStore((s) => s.trucks);
   const events = useSimulationStore((s) => s.events);
   const mode = useSimulationStore((s) => s.mode);
-  const startSimulation = useSimulationStore((s) => s.startSimulation);
-  const stopSimulation = useSimulationStore((s) => s.stopSimulation);
   const setMode = useSimulationStore((s) => s.setMode);
-
-  useEffect(() => {
-    startSimulation();
-    return () => stopSimulation();
-  }, [startSimulation, stopSimulation]);
 
   const queueCounts = getQueueCounts(trucks);
   const loadPointsWithQueue = LOAD_POINTS.map((lp) => ({ ...lp, queueCount: queueCounts[lp.id] || 0 }));

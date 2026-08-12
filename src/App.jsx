@@ -1,10 +1,18 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import MapPage from './pages/MapPage';
 import FuelReportPage from './pages/FuelReportPage';
 import AssistantPage from './pages/AssistantPage';
+import { useSimulationStore } from './simulation/store';
 
 export default function App() {
+  const startSimulation = useSimulationStore((s) => s.startSimulation);
+
+  useEffect(() => {
+    startSimulation();
+  }, [startSimulation]);
+
   return (
     <BrowserRouter>
       <Routes>

@@ -8,6 +8,9 @@ import {
   SCRIPTED_CONGESTION_TRUCKS,
 } from './store';
 import { LOAD_POINTS } from './constants';
+import { FALLBACK_FUEL_NORM_L_PER_HOUR, FUEL_TANK_CAPACITY_L } from './fuel';
+
+const EMPTY_SCRIPTED = { active: false, remaining: 0, targetId: null, triggerAt: 0 };
 
 beforeEach(() => {
   resetCounters();
@@ -26,6 +29,14 @@ describe('createTruck', () => {
     const b = createTruck(0);
     expect(a.id).not.toBe(b.id);
   });
+
+  it('стартует с полным баком и нормой автопарка', () => {
+    const truck = createTruck(0);
+    expect(truck.fuelLevel).toBe(FUEL_TANK_CAPACITY_L);
+    expect(truck.fuelBurnRatePerHour).toBe(FALLBACK_FUEL_NORM_L_PER_HOUR);
+    expect(truck.fuelConsumedThisShift).toBe(0);
+    expect(truck.distanceThisShift).toBe(0);
+  });
 });
 
 describe('getQueueCounts', () => {
@@ -43,12 +54,7 @@ describe('getQueueCounts', () => {
 describe('simulationTick — dispatch integration', () => {
   it('назначает цель через диспетчерский алгоритм при выходе из ENTERING и логирует событие', () => {
     const truck = createTruck(0);
-    const state = {
-      trucks: [truck],
-      nextSpawnAt: 1e9,
-      events: [],
-      scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
-    };
+    const state = { trucks: [truck], nextSpawnAt: 1e9, events: [], sessionLog: [], scripted: EMPTY_SCRIPTED };
     const result = simulationTick(state, truck.phaseDurationMs);
     const advanced = result.trucks.find((t) => t.id === truck.id);
 
@@ -65,12 +71,7 @@ describe('simulationTick — dispatch integration', () => {
 
   it('проходит весь цикл TO_LOAD -> LOADING -> EXITING -> DONE через последовательные тики', () => {
     let truck = createTruck(0);
-    let state = {
-      trucks: [truck],
-      nextSpawnAt: 1e9,
-      events: [],
-      scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
-    };
+    let state = { trucks: [truck], nextSpawnAt: 1e9, events: [], sessionLog: [], scripted: EMPTY_SCRIPTED };
 
     // +1 мс запаса на каждой границе: phaseStartedAt/phaseDurationMs — не
     // целые числа (randomInRange), и (a + b) - a изредка на 1 бит с плавающей
@@ -96,12 +97,7 @@ describe('simulationTick — dispatch integration', () => {
 
 describe('simulationTick', () => {
   it('никогда не превышает MAX_ACTIVE_TRUCKS и не пустеет после разгона', () => {
-    let state = {
-      trucks: [],
-      nextSpawnAt: 0,
-      events: [],
-      scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
-    };
+    let state = { trucks: [], nextSpawnAt: 0, events: [], sessionLog: [], scripted: EMPTY_SCRIPTED };
     let now = 0;
     for (let i = 0; i < 300; i++) {
       now += 1500;
@@ -111,18 +107,16 @@ describe('simulationTick', () => {
     expect(state.trucks.length).toBeGreaterThan(0);
   });
 
-  it('убирает машины, завершившие маршрут (DONE)', () => {
+  it('убирает машины, завершившие маршрут (DONE), и фиксирует запись в sessionLog', () => {
     const truck = { ...createTruck(0), phase: 'EXITING', phaseStartedAt: 0, phaseDurationMs: 100 };
     const state = simulationTick(
-      {
-        trucks: [truck],
-        nextSpawnAt: 0,
-        events: [],
-        scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
-      },
+      { trucks: [truck], nextSpawnAt: 0, events: [], sessionLog: [], scripted: EMPTY_SCRIPTED },
       200,
     );
     expect(state.trucks.find((t) => t.id === truck.id)).toBeUndefined();
+    expect(state.sessionLog).toHaveLength(1);
+    expect(state.sessionLog[0].truckNumber).toBe(truck.number);
+    expect(state.sessionLog[0].status).toBe('завершила смену');
   });
 });
 
@@ -132,6 +126,7 @@ describe('заскриптованный сценарий с затором', ()
       trucks: [],
       nextSpawnAt: 1e9,
       events: [],
+      sessionLog: [],
       scripted: { active: true, remaining: SCRIPTED_CONGESTION_TRUCKS, targetId: null, triggerAt: 5000 },
     };
     const forcedTargets = [];
@@ -152,5 +147,38 @@ describe('заскриптованный сценарий с затором', ()
     state = { ...state, trucks: [...state.trucks, nextTruck] };
     state = simulationTick(state, 5000 + nextTruck.phaseDurationMs + 1000);
     expect(state.events[0].reason).not.toContain('заскриптован');
+  });
+});
+
+describe('учёт топлива и пробега', () => {
+  it('копит топливо и пробег во время движения, и фиксирует финальные цифры в sessionLog при DONE', () => {
+    let truck = createTruck(0);
+    let state = { trucks: [truck], nextSpawnAt: 1e9, events: [], sessionLog: [], scripted: EMPTY_SCRIPTED };
+
+    state = simulationTick(state, truck.phaseDurationMs + 1); // ENTERING -> TO_LOAD
+    truck = state.trucks.find((t) => t.id === truck.id);
+    expect(truck.phase).toBe('TO_LOAD');
+    expect(truck.fuelConsumedThisShift).toBe(0); // фаза только началась
+
+    const halfway = truck.phaseStartedAt + truck.phaseDurationMs / 2;
+    state = simulationTick(state, halfway);
+    truck = state.trucks.find((t) => t.id === truck.id);
+    expect(truck.fuelConsumedThisShift).toBeGreaterThan(0);
+    expect(truck.distanceThisShift).toBeGreaterThan(0);
+
+    state = simulationTick(state, truck.phaseStartedAt + truck.phaseDurationMs + 1); // -> LOADING
+    truck = state.trucks.find((t) => t.id === truck.id);
+    expect(truck.phase).toBe('LOADING');
+
+    state = simulationTick(state, truck.phaseStartedAt + truck.phaseDurationMs + 1); // -> EXITING
+    truck = state.trucks.find((t) => t.id === truck.id);
+    expect(truck.phase).toBe('EXITING');
+
+    state = simulationTick(state, truck.phaseStartedAt + truck.phaseDurationMs + 1); // -> DONE
+    expect(state.trucks.find((t) => t.id === truck.id)).toBeUndefined();
+    expect(state.sessionLog).toHaveLength(1);
+    expect(state.sessionLog[0].totalFuelConsumed).toBeGreaterThan(0);
+    expect(state.sessionLog[0].totalDistanceM).toBeGreaterThan(0);
+    expect(state.sessionLog[0].normLPerHour).toBe(FALLBACK_FUEL_NORM_L_PER_HOUR);
   });
 });

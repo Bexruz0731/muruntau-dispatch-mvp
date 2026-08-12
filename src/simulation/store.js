@@ -1,6 +1,12 @@
 import { create } from 'zustand';
 import { ENTRY_POINT, EXIT_POINT, LOAD_POINTS, groundPosition, buildRoutePoints } from './constants';
 import { chooseLoadPoint } from './dispatch';
+import {
+  accrueFuelAndDistance,
+  deviationPercent,
+  FALLBACK_FUEL_NORM_L_PER_HOUR,
+  FUEL_TANK_CAPACITY_L,
+} from './fuel';
 
 export const TRUCK_HEIGHT_OFFSET = 0.9; // совпадает с зазором машины над землёй в Truck.jsx
 export const MIN_ACTIVE_TRUCKS = 6;
@@ -53,9 +59,8 @@ export function getQueueCounts(trucks) {
   return counts;
 }
 
-// Новая машина появляется на въезде БЕЗ цели — её назначит диспетчерский
-// алгоритм при переходе ENTERING -> TO_LOAD (см. decideTarget), когда уже
-// известна актуальная загрузка точек.
+// Новая машина появляется на въезде БЕЗ цели (её назначит диспетчерский
+// алгоритм — см. decideTarget), с полным баком и нормой расхода автопарка.
 export function createTruck(now) {
   idCounter += 1;
   numberCounter += 1;
@@ -69,6 +74,12 @@ export function createTruck(now) {
     path: [entryGround, entryGround],
     phaseStartedAt: now,
     phaseDurationMs: ENTERING_DURATION_MS,
+    phaseAccountedMs: 0,
+    fuelLevel: FUEL_TANK_CAPACITY_L,
+    fuelConsumedThisShift: 0,
+    distanceThisShift: 0,
+    movingMs: 0,
+    fuelBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR,
   };
 }
 
@@ -105,6 +116,17 @@ function makeEvent(truck, decision, now) {
   };
 }
 
+function toSessionRecord(truck, status) {
+  return {
+    truckNumber: truck.number,
+    totalDistanceM: truck.distanceThisShift,
+    totalFuelConsumed: truck.fuelConsumedThisShift,
+    normLPerHour: truck.fuelBurnRatePerHour,
+    deviationPercent: deviationPercent(truck),
+    status,
+  };
+}
+
 // Продвигает уже нацеленную машину (TO_LOAD/LOADING/EXITING) по автомату —
 // используется для всех фаз, кроме ENTERING, где ещё нужно выбрать цель.
 function advanceTargetedTruck(truck, now) {
@@ -116,6 +138,7 @@ function advanceTargetedTruck(truck, now) {
         position: truck.path[truck.path.length - 1],
         phaseStartedAt: now,
         phaseDurationMs: randomInRange(LOADING_DURATION_RANGE),
+        phaseAccountedMs: 0,
       };
     case 'LOADING': {
       const target = loadPointById(truck.targetLoadPointId);
@@ -127,6 +150,7 @@ function advanceTargetedTruck(truck, now) {
         position: path[0],
         phaseStartedAt: now,
         phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
+        phaseAccountedMs: 0,
       };
     }
     case 'EXITING':
@@ -136,6 +160,7 @@ function advanceTargetedTruck(truck, now) {
         position: truck.path[truck.path.length - 1],
         phaseStartedAt: now,
         phaseDurationMs: 0,
+        phaseAccountedMs: 0,
       };
     default:
       return truck;
@@ -151,9 +176,11 @@ export function simulationTick(state, now) {
   let queueCounts = getQueueCounts(state.trucks);
   let scripted = state.scripted;
   const newEvents = [];
+  const newSessionRecords = [];
 
   const advanced = [];
-  for (const truck of state.trucks) {
+  for (const rawTruck of state.trucks) {
+    const truck = accrueFuelAndDistance(rawTruck, now);
     const elapsed = now - truck.phaseStartedAt;
     if (elapsed < truck.phaseDurationMs) {
       advanced.push(truck);
@@ -178,11 +205,16 @@ export function simulationTick(state, now) {
         targetLoadPointId: decision.targetLoadPointId,
         phaseStartedAt: now,
         phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
+        phaseAccountedMs: 0,
       });
       continue;
     }
 
-    advanced.push(advanceTargetedTruck(truck, now));
+    const targeted = advanceTargetedTruck(truck, now);
+    if (targeted.phase === 'DONE') {
+      newSessionRecords.push(toSessionRecord(targeted, 'завершила смену'));
+    }
+    advanced.push(targeted);
   }
 
   const trucks = advanced.filter((t) => t.phase !== 'DONE');
@@ -195,8 +227,9 @@ export function simulationTick(state, now) {
   }
 
   const events = newEvents.length > 0 ? [...newEvents, ...state.events].slice(0, MAX_EVENTS) : state.events;
+  const sessionLog = newSessionRecords.length > 0 ? [...state.sessionLog, ...newSessionRecords] : state.sessionLog;
 
-  return { trucks, nextSpawnAt, events, scripted };
+  return { trucks, nextSpawnAt, events, scripted, sessionLog };
 }
 
 function initialScriptedState(now, mode) {
@@ -216,6 +249,7 @@ export const useSimulationStore = create((set, get) => ({
   nextSpawnAt: 0,
   intervalId: null,
   events: [],
+  sessionLog: [],
   mode: 'random',
   scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
 
