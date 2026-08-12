@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { ENTRY_POINT, EXIT_POINT, LOAD_POINTS, groundPosition, buildRoutePoints } from './constants';
+import { chooseLoadPoint } from './dispatch';
 
 export const TRUCK_HEIGHT_OFFSET = 0.9; // совпадает с зазором машины над землёй в Truck.jsx
 export const MIN_ACTIVE_TRUCKS = 6;
@@ -9,16 +10,10 @@ export const LOADING_DURATION_RANGE = [5000, 8000];
 export const TRAVEL_DURATION_RANGE = [6000, 10000];
 export const SPAWN_PAUSE_RANGE = [1000, 4000];
 export const ENTERING_DURATION_MS = 600;
+export const MAX_EVENTS = 30;
 
 function randomInRange([min, max]) {
   return min + Math.random() * (max - min);
-}
-
-// Случайный выбор точки погрузки — временно, до этапа 3 (диспетчерский
-// алгоритм по загрузке точек). Изолирован в одну функцию специально, чтобы
-// в следующем плане её было легко заменить, не трогая остальной автомат.
-function pickTargetLoadPoint() {
-  return LOAD_POINTS[Math.floor(Math.random() * LOAD_POINTS.length)];
 }
 
 function loadPointById(id) {
@@ -33,27 +28,41 @@ function pathTo(fromXZ, toXZ) {
 
 let idCounter = 0;
 let numberCounter = 0;
+let eventIdCounter = 0;
 
-// Сбрасывает счётчики id/номеров машин — нужно только в тестах, чтобы
+// Сбрасывает счётчики id/номеров/событий — нужно только в тестах, чтобы
 // каждый тест начинался с чистого состояния.
 export function resetCounters() {
   idCounter = 0;
   numberCounter = 0;
+  eventIdCounter = 0;
 }
 
-// Новая машина появляется на въезде уже с целью — случайной точкой
-// погрузки (см. pickTargetLoadPoint). Фаза ENTERING длится один короткий
-// тик, за это время путь ей не нужен (position фиксирован на въезде).
+// Сколько машин сейчас едут к каждой точке погрузки или грузятся на ней —
+// это и есть "очередь" для алгоритма диспетчеризации и для цветовой
+// индикации в UI.
+export function getQueueCounts(trucks) {
+  const counts = {};
+  for (const t of trucks) {
+    if ((t.phase === 'TO_LOAD' || t.phase === 'LOADING') && t.targetLoadPointId) {
+      counts[t.targetLoadPointId] = (counts[t.targetLoadPointId] || 0) + 1;
+    }
+  }
+  return counts;
+}
+
+// Новая машина появляется на въезде БЕЗ цели — её назначит диспетчерский
+// алгоритм при переходе ENTERING -> TO_LOAD (см. decideTarget), когда уже
+// известна актуальная загрузка точек.
 export function createTruck(now) {
   idCounter += 1;
   numberCounter += 1;
-  const target = pickTargetLoadPoint();
   const entryGround = groundPosition(ENTRY_POINT.position);
   return {
     id: idCounter,
     number: String(10 + (numberCounter % 90)).padStart(2, '0'),
     phase: 'ENTERING',
-    targetLoadPointId: target.id,
+    targetLoadPointId: null,
     position: entryGround,
     path: [entryGround, entryGround],
     phaseStartedAt: now,
@@ -61,27 +70,44 @@ export function createTruck(now) {
   };
 }
 
-// Продвигает одну машину по конечному автомату фаз, если время текущей
-// фазы истекло; иначе возвращает тот же объект без изменений. Чистая
-// функция — не знает о Zustand и не читает реальные часы сама.
-export function advanceTruck(truck, now) {
-  const elapsed = now - truck.phaseStartedAt;
-  if (elapsed < truck.phaseDurationMs) return truck;
+// Решает, куда направить освободившуюся машину: если активен
+// заскриптованный сценарий и подошло его время — принудительно к одной и
+// той же точке (гарантированный затор для демонстрации на защите), иначе —
+// обычным алгоритмом диспетчеризации. Возвращает решение и обновлённое
+// состояние сценария (или null, если оно не изменилось).
+function decideTarget(queueCounts, now, scriptedState) {
+  if (scriptedState?.active && now >= scriptedState.triggerAt && scriptedState.remaining > 0) {
+    const targetId = scriptedState.targetId ?? LOAD_POINTS[0].id;
+    const lp = loadPointById(targetId);
+    const remaining = scriptedState.remaining - 1;
+    return {
+      decision: {
+        targetLoadPointId: targetId,
+        reason: `заскриптованный сценарий: машина намеренно направлена в «${lp.name}» для демонстрации затора`,
+      },
+      scriptedUpdate: { ...scriptedState, targetId, remaining, active: remaining > 0 },
+    };
+  }
+  return { decision: chooseLoadPoint(ENTRY_POINT.position, queueCounts), scriptedUpdate: null };
+}
 
+function makeEvent(truck, decision, now) {
+  eventIdCounter += 1;
+  return {
+    id: eventIdCounter,
+    ts: now,
+    truckNumber: truck.number,
+    fromLabel: ENTRY_POINT.name,
+    toLoadPointId: decision.targetLoadPointId,
+    reason: decision.reason,
+  };
+}
+
+// Продвигает уже нацеленную машину (TO_LOAD/LOADING/EXITING) по автомату —
+// используется для всех фаз, кроме ENTERING, где ещё нужно выбрать цель.
+function advanceTargetedTruck(truck, now) {
   switch (truck.phase) {
-    case 'ENTERING': {
-      const target = loadPointById(truck.targetLoadPointId);
-      const path = pathTo(ENTRY_POINT.position, target.position);
-      return {
-        ...truck,
-        phase: 'TO_LOAD',
-        path,
-        position: path[0],
-        phaseStartedAt: now,
-        phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
-      };
-    }
-    case 'TO_LOAD': {
+    case 'TO_LOAD':
       return {
         ...truck,
         phase: 'LOADING',
@@ -89,7 +115,6 @@ export function advanceTruck(truck, now) {
         phaseStartedAt: now,
         phaseDurationMs: randomInRange(LOADING_DURATION_RANGE),
       };
-    }
     case 'LOADING': {
       const target = loadPointById(truck.targetLoadPointId);
       const path = pathTo(target.position, EXIT_POINT.position);
@@ -102,7 +127,7 @@ export function advanceTruck(truck, now) {
         phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
       };
     }
-    case 'EXITING': {
+    case 'EXITING':
       return {
         ...truck,
         phase: 'DONE',
@@ -110,31 +135,66 @@ export function advanceTruck(truck, now) {
         phaseStartedAt: now,
         phaseDurationMs: 0,
       };
-    }
     default:
       return truck;
   }
 }
 
-// Один тик симулятора: продвигает все машины, убирает завершившие маршрут
-// (DONE), и при необходимости добавляет новую — поддерживая количество
-// активных машин в диапазоне [MIN_ACTIVE_TRUCKS, MAX_ACTIVE_TRUCKS] с
-// небольшой случайной паузой между новыми машинами (не строго по одной за
-// тик, а с разбросом — см. design spec "новая машина... через небольшую
-// случайную паузу").
+// Один тик симулятора: продвигает все машины (назначая цель машинам,
+// освободившимся на въезде, через диспетчерский алгоритм), убирает
+// завершившие маршрут (DONE), логирует решения в события и при
+// необходимости добавляет новую машину, поддерживая активных в диапазоне
+// [MIN_ACTIVE_TRUCKS, MAX_ACTIVE_TRUCKS].
 export function simulationTick(state, now) {
-  const trucks = state.trucks.map((t) => advanceTruck(t, now)).filter((t) => t.phase !== 'DONE');
-  let nextSpawnAt = state.nextSpawnAt;
+  let queueCounts = getQueueCounts(state.trucks);
+  let scripted = state.scripted;
+  const newEvents = [];
 
+  const advanced = [];
+  for (const truck of state.trucks) {
+    const elapsed = now - truck.phaseStartedAt;
+    if (elapsed < truck.phaseDurationMs) {
+      advanced.push(truck);
+      continue;
+    }
+
+    if (truck.phase === 'ENTERING') {
+      const { decision, scriptedUpdate } = decideTarget(queueCounts, now, scripted);
+      if (scriptedUpdate) scripted = scriptedUpdate;
+      queueCounts = {
+        ...queueCounts,
+        [decision.targetLoadPointId]: (queueCounts[decision.targetLoadPointId] || 0) + 1,
+      };
+      newEvents.push(makeEvent(truck, decision, now));
+      const target = loadPointById(decision.targetLoadPointId);
+      const path = pathTo(ENTRY_POINT.position, target.position);
+      advanced.push({
+        ...truck,
+        phase: 'TO_LOAD',
+        path,
+        position: path[0],
+        targetLoadPointId: decision.targetLoadPointId,
+        phaseStartedAt: now,
+        phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
+      });
+      continue;
+    }
+
+    advanced.push(advanceTargetedTruck(truck, now));
+  }
+
+  const trucks = advanced.filter((t) => t.phase !== 'DONE');
+  let nextSpawnAt = state.nextSpawnAt;
   const shouldSpawn = trucks.length < MIN_ACTIVE_TRUCKS
     || (trucks.length < MAX_ACTIVE_TRUCKS && now >= nextSpawnAt);
-
   if (shouldSpawn) {
     trucks.push(createTruck(now));
     nextSpawnAt = now + randomInRange(SPAWN_PAUSE_RANGE);
   }
 
-  return { trucks, nextSpawnAt };
+  const events = newEvents.length > 0 ? [...newEvents, ...state.events].slice(0, MAX_EVENTS) : state.events;
+
+  return { trucks, nextSpawnAt, events, scripted };
 }
 
 // Живой Zustand-стор: тонкая обёртка над чистыми функциями выше,
@@ -143,6 +203,8 @@ export const useSimulationStore = create((set, get) => ({
   trucks: [],
   nextSpawnAt: 0,
   intervalId: null,
+  events: [],
+  scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
 
   startSimulation() {
     if (get().intervalId) return;
