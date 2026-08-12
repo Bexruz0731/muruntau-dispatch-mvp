@@ -6,9 +6,10 @@ import {
   deviationPercent,
   FALLBACK_FUEL_NORM_L_PER_HOUR,
   FUEL_TANK_CAPACITY_L,
+  parseFuelNormLPerHour,
+  FUEL_NORM_RAG_PROMPT,
 } from './fuel';
 import { rollSeededAnomaly, loadingDurationForSeed, actualBurnRateForSeed, detectAnomaly } from './anomaly';
-import { parseFuelNormLPerHour, FUEL_NORM_RAG_PROMPT } from './fuel';
 import { chatWithWorkspace, resolveWorkspaceSlug, WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG } from '../lib/anythingllm';
 
 export const TRUCK_HEIGHT_OFFSET = 0.9; // совпадает с зазором машины над землёй в Truck.jsx
