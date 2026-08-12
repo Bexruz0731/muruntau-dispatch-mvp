@@ -1,4 +1,5 @@
 import { statusColorForQueue } from '../simulation/dispatch';
+import { deviationPercent, statusColorForDeviation } from '../simulation/fuel';
 
 const PHASE_LABELS = {
   ENTERING: 'на въезде',
@@ -36,13 +37,25 @@ export default function DispatcherPanel({ trucks, loadPoints, events, mode, onMo
 
       <div className="p-3 border-b border-slate-800 overflow-y-auto max-h-48">
         <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Машины ({trucks.length})</div>
-        <ul className="space-y-1 text-xs">
-          {trucks.map((t) => (
-            <li key={t.id} className="flex justify-between text-slate-300">
-              <span>№{t.number}</span>
-              <span className="text-slate-400">{PHASE_LABELS[t.phase] ?? t.phase}</span>
-            </li>
-          ))}
+        <ul className="space-y-1.5 text-xs">
+          {trucks.map((t) => {
+            const dev = deviationPercent(t);
+            return (
+              <li key={t.id} className="text-slate-300">
+                <div className="flex justify-between">
+                  <span>№{t.number}</span>
+                  <span className="text-slate-400">{PHASE_LABELS[t.phase] ?? t.phase}</span>
+                </div>
+                <div className="flex justify-between text-[11px] text-slate-500">
+                  <span>{Math.round(t.fuelLevel)} л · норма {t.fuelBurnRatePerHour} л/ч</span>
+                  <span style={{ color: statusColorForDeviation(dev) }}>
+                    {dev >= 0 ? '+' : ''}
+                    {dev.toFixed(1)}%
+                  </span>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </div>
 
