@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chooseLoadPoint, statusColorForQueue, OVERLOAD_THRESHOLD } from './dispatch';
+import { chooseLoadPoint, statusColorForQueue, buildDispatchExplainPrompt, OVERLOAD_THRESHOLD } from './dispatch';
 import { LOAD_POINTS, ENTRY_POINT } from './constants';
 
 function distanceTo(lp) {
@@ -42,5 +42,29 @@ describe('statusColorForQueue', () => {
     expect(statusColorForQueue(OVERLOAD_THRESHOLD - 1)).toBe('#22c55e');
     expect(statusColorForQueue(OVERLOAD_THRESHOLD)).toBe('#eab308');
     expect(statusColorForQueue(OVERLOAD_THRESHOLD + 1)).toBe('#ef4444');
+  });
+});
+
+describe('buildDispatchExplainPrompt', () => {
+  it('строит промпт с номером машины, названием точки и причиной решения', () => {
+    const event = {
+      truckNumber: '42',
+      fromLabel: 'Въезд',
+      toLoadPointId: 'lp-a',
+      reason: 'Точка A — ближайшая свободная точка (120 м, очередь 0)',
+    };
+    const loadPoints = [{ id: 'lp-a', name: 'Точка A' }, { id: 'lp-b', name: 'Точка B' }];
+    const prompt = buildDispatchExplainPrompt(event, loadPoints);
+
+    expect(prompt).toContain('42');
+    expect(prompt).toContain('Точка A');
+    expect(prompt).toContain('Въезд');
+    expect(prompt).toContain('ближайшая свободная точка');
+  });
+
+  it('не падает, если точка погрузки не найдена в списке (использует id как запасной текст)', () => {
+    const event = { truckNumber: '42', fromLabel: 'Въезд', toLoadPointId: 'lp-x', reason: 'причина' };
+    const prompt = buildDispatchExplainPrompt(event, []);
+    expect(prompt).toContain('lp-x');
   });
 });

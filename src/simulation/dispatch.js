@@ -40,3 +40,13 @@ export function statusColorForQueue(queue) {
   if (queue >= OVERLOAD_THRESHOLD) return '#eab308';
   return '#22c55e';
 }
+
+// Промпт для сценария "Объяснить решение" (ТЗ, "Интеграция AnythingLLM",
+// сценарий 1) — строится из уже накопленных полей события ленты диспетчера,
+// включая человекочитаемую причину (reason), которую уже сформировал
+// chooseLoadPoint/сценарий с затором.
+export function buildDispatchExplainPrompt(event, loadPoints) {
+  const point = loadPoints.find((lp) => lp.id === event.toLoadPointId);
+  const pointName = point ? point.name : event.toLoadPointId;
+  return `Объясни диспетчерское решение простым языком для диспетчера карьера: машина №${event.truckNumber} выехала из точки «${event.fromLabel}» и направлена в точку «${pointName}». Причина решения алгоритма: ${event.reason}.`;
+}

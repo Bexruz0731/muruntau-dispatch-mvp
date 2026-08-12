@@ -1,6 +1,10 @@
 import { useState } from 'react';
-import { statusColorForQueue } from '../simulation/dispatch';
+import { statusColorForQueue, buildDispatchExplainPrompt } from '../simulation/dispatch';
 import { deviationPercent, statusColorForDeviation } from '../simulation/fuel';
+import ExplainButton from './ExplainButton';
+import { resolveWorkspaceSlug, WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG } from '../lib/anythingllm';
+
+const DISPATCH_WORKSPACE_SLUG = resolveWorkspaceSlug(WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG);
 
 const PHASE_LABELS = {
   ENTERING: 'на въезде',
@@ -104,10 +108,18 @@ export default function DispatcherPanel({ trucks, loadPoints, events, mode, onMo
       <div className="p-3 flex-1 overflow-y-auto min-h-0">
         <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Лента событий</div>
         <ul className="space-y-2 text-xs">
-          {events.map((e) => (
+          {events.map((e, i) => (
             <li key={e.id} className="text-slate-300 border-l-2 border-slate-700 pl-2">
               <div className="font-medium">№{e.truckNumber}: {e.fromLabel} → точка погрузки</div>
               <div className="text-slate-400">{e.reason}</div>
+              {i === 0 && (
+                <ExplainButton
+                  workspaceSlug={DISPATCH_WORKSPACE_SLUG}
+                  variant="dark"
+                  label="Объяснить решение"
+                  buildPrompt={() => buildDispatchExplainPrompt(e, loadPoints)}
+                />
+              )}
             </li>
           ))}
           {events.length === 0 && <li className="text-slate-500">Пока нет решений диспетчера</li>}
