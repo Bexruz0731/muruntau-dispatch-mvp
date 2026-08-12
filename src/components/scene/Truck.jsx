@@ -45,13 +45,14 @@ export default function Truck({ truck }) {
   const groupRef = useRef();
   const progressRef = useRef();
   const bodyMatRef = useRef();
+  const kuzovRef = useRef();
 
   useFrame(() => {
     const now = performance.now();
     const [x, y, z] = interpolatedPosition(truck, now);
     if (groupRef.current) groupRef.current.position.set(x, y, z);
 
-    if ((truck.phase === 'TO_LOAD' || truck.phase === 'EXITING') && groupRef.current) {
+    if ((truck.phase === 'TO_LOAD' || truck.phase === 'EXITING' || truck.phase === 'RETURNING') && groupRef.current) {
       const t = Math.min(1, Math.max(0, (now - truck.phaseStartedAt) / truck.phaseDurationMs));
       const dir = pathDirectionAt(truck.path, t);
       if (dir) {
@@ -66,6 +67,7 @@ export default function Truck({ truck }) {
     }
 
     const loading = truck.phase === 'LOADING';
+    const unloading = truck.phase === 'UNLOADING';
     if (progressRef.current) {
       const progress = loading
         ? Math.min(1, (now - truck.phaseStartedAt) / truck.phaseDurationMs)
@@ -74,7 +76,17 @@ export default function Truck({ truck }) {
       progressRef.current.scale.x = Math.max(0.001, progress);
     }
     if (bodyMatRef.current) {
-      bodyMatRef.current.emissiveIntensity = loading ? 0.4 + Math.sin(now * 0.006) * 0.3 : 0;
+      const active = loading || unloading;
+      bodyMatRef.current.emissiveIntensity = active ? 0.4 + Math.sin(now * 0.006) * 0.3 : 0;
+    }
+    if (kuzovRef.current) {
+      // Наклон кузова на разгрузке — приподнимается и опускается плавно
+      // (синусоида по прогрессу фазы), имитируя высыпку груза в бункер ленты.
+      const dumpProgress = unloading
+        ? Math.min(1, (now - truck.phaseStartedAt) / truck.phaseDurationMs)
+        : 0;
+      const tilt = Math.sin(dumpProgress * Math.PI) * 0.5;
+      kuzovRef.current.rotation.z = -0.05 - tilt;
     }
   });
 
@@ -99,7 +111,7 @@ export default function Truck({ truck }) {
         <meshBasicMaterial color={ACCENT_COLOR} transparent opacity={0.9} blending={THREE.AdditiveBlending} />
       </mesh>
       {/* кузов-самосвал — жёлтая пульсация emissive во время погрузки */}
-      <mesh position={[0.6, 0.75, 0]} rotation={[0, 0, -0.05]}>
+      <mesh position={[0.6, 0.75, 0]} rotation={[0, 0, -0.05]} ref={kuzovRef}>
         <boxGeometry args={[1.6, 0.9, 1.7]} />
         <meshStandardMaterial
           ref={bodyMatRef}
