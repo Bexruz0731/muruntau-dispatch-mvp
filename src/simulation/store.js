@@ -11,6 +11,8 @@ export const TRAVEL_DURATION_RANGE = [6000, 10000];
 export const SPAWN_PAUSE_RANGE = [1000, 4000];
 export const ENTERING_DURATION_MS = 600;
 export const MAX_EVENTS = 30;
+export const SCRIPTED_CONGESTION_DELAY_MS = 12000; // "гарантированно на 10-15 секунде" (ТЗ)
+export const SCRIPTED_CONGESTION_TRUCKS = 3;
 
 function randomInRange([min, max]) {
   return min + Math.random() * (max - min);
@@ -197,6 +199,16 @@ export function simulationTick(state, now) {
   return { trucks, nextSpawnAt, events, scripted };
 }
 
+function initialScriptedState(now, mode) {
+  if (mode !== 'scripted') return { active: false, remaining: 0, targetId: null, triggerAt: 0 };
+  return {
+    active: true,
+    remaining: SCRIPTED_CONGESTION_TRUCKS,
+    targetId: null,
+    triggerAt: now + SCRIPTED_CONGESTION_DELAY_MS,
+  };
+}
+
 // Живой Zustand-стор: тонкая обёртка над чистыми функциями выше,
 // владеющая единственным setInterval на всю симуляцию.
 export const useSimulationStore = create((set, get) => ({
@@ -204,6 +216,7 @@ export const useSimulationStore = create((set, get) => ({
   nextSpawnAt: 0,
   intervalId: null,
   events: [],
+  mode: 'random',
   scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
 
   startSimulation() {
@@ -216,12 +229,21 @@ export const useSimulationStore = create((set, get) => ({
     const id = setInterval(() => {
       set((state) => simulationTick(state, performance.now()));
     }, TICK_INTERVAL_MS);
-    set({ trucks: initial, nextSpawnAt: now + randomInRange(SPAWN_PAUSE_RANGE), intervalId: id });
+    set({
+      trucks: initial,
+      nextSpawnAt: now + randomInRange(SPAWN_PAUSE_RANGE),
+      intervalId: id,
+      scripted: initialScriptedState(now, get().mode),
+    });
   },
 
   stopSimulation() {
     const id = get().intervalId;
     if (id) clearInterval(id);
     set({ intervalId: null });
+  },
+
+  setMode(mode) {
+    set({ mode, scripted: initialScriptedState(performance.now(), mode) });
   },
 }));

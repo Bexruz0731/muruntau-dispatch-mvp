@@ -5,6 +5,7 @@ import {
   resetCounters,
   getQueueCounts,
   MAX_ACTIVE_TRUCKS,
+  SCRIPTED_CONGESTION_TRUCKS,
 } from './store';
 import { LOAD_POINTS } from './constants';
 
@@ -122,5 +123,34 @@ describe('simulationTick', () => {
       200,
     );
     expect(state.trucks.find((t) => t.id === truck.id)).toBeUndefined();
+  });
+});
+
+describe('заскриптованный сценарий с затором', () => {
+  it('направляет SCRIPTED_CONGESTION_TRUCKS машин подряд в одну точку, затем сценарий исчерпывается и алгоритм возвращается к обычной логике', () => {
+    let state = {
+      trucks: [],
+      nextSpawnAt: 1e9,
+      events: [],
+      scripted: { active: true, remaining: SCRIPTED_CONGESTION_TRUCKS, targetId: null, triggerAt: 5000 },
+    };
+    const forcedTargets = [];
+
+    for (let i = 0; i < SCRIPTED_CONGESTION_TRUCKS; i++) {
+      const truck = createTruck(5000);
+      state = { ...state, trucks: [...state.trucks, truck] };
+      state = simulationTick(state, 5000 + truck.phaseDurationMs);
+      const advanced = state.trucks.find((t) => t.id === truck.id);
+      forcedTargets.push(advanced.targetLoadPointId);
+    }
+
+    expect(new Set(forcedTargets).size).toBe(1);
+    expect(state.scripted.active).toBe(false);
+    expect(state.events[0].reason).toContain('заскриптован');
+
+    const nextTruck = createTruck(5000);
+    state = { ...state, trucks: [...state.trucks, nextTruck] };
+    state = simulationTick(state, 5000 + nextTruck.phaseDurationMs + 1000);
+    expect(state.events[0].reason).not.toContain('заскриптован');
   });
 });
