@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ENTRY_POINT, EXIT_POINT, LOAD_POINTS, groundPosition, buildRoutePoints } from './constants';
+import { ENTRY_POINT, BELT_POINT, LOAD_POINTS, groundPosition, buildRoutePoints } from './constants';
 import { chooseLoadPoint } from './dispatch';
 import {
   accrueFuelAndDistance,
@@ -13,16 +13,16 @@ import { rollSeededAnomaly, loadingDurationForSeed, actualBurnRateForSeed, detec
 import { chatWithWorkspace, resolveWorkspaceSlug, WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG } from '../lib/anythingllm';
 
 export const TRUCK_HEIGHT_OFFSET = 0.9; // совпадает с зазором машины над землёй в Truck.jsx
-export const MIN_ACTIVE_TRUCKS = 6;
-export const MAX_ACTIVE_TRUCKS = 10;
+export const FLEET_SIZE = 6; // фиксированный парк — машины больше не спавнятся/не исчезают
 export const TICK_INTERVAL_MS = 1500; // TODO: заменить на реальные данные трекеров в проде
 export const LOADING_DURATION_RANGE = [5000, 8000];
+export const UNLOADING_DURATION_RANGE = [3000, 5000];
 export const TRAVEL_DURATION_RANGE = [6000, 10000];
-export const SPAWN_PAUSE_RANGE = [1000, 4000];
 export const ENTERING_DURATION_MS = 600;
 export const MAX_EVENTS = 30;
 export const SCRIPTED_CONGESTION_DELAY_MS = 12000; // "гарантированно на 10-15 секунде" (ТЗ)
 export const SCRIPTED_CONGESTION_TRUCKS = 3;
+export const LAPS_PER_SHIFT = 5; // рейсов на "смену" — столько же строк-агрегатов в отчёте
 
 function randomInRange([min, max]) {
   return min + Math.random() * (max - min);
@@ -63,6 +63,12 @@ export function getQueueCounts(trucks) {
   return counts;
 }
 
+// Сколько машин сейчас едут на ленту или разгружаются на ней — та же логика
+// "очереди", что и у точек погрузки, для симметрии в панели диспетчера.
+export function getBeltQueueCount(trucks) {
+  return trucks.filter((t) => t.phase === 'EXITING' || t.phase === 'UNLOADING').length;
+}
+
 // Новая машина появляется на въезде БЕЗ цели (её назначит диспетчерский
 // алгоритм — см. decideTarget), с полным баком и нормой расхода автопарка.
 // ~25% машин получают засеянную аномалию (см. simulation/anomaly.js) — это
@@ -88,6 +94,7 @@ export function createTruck(now, normLPerHour = FALLBACK_FUEL_NORM_L_PER_HOUR) {
     fuelConsumedThisShift: 0,
     distanceThisShift: 0,
     movingMs: 0,
+    lapsCompletedThisShift: 0,
     fuelBurnRatePerHour: normLPerHour,
     actualBurnRatePerHour: actualBurnRateForSeed(normLPerHour, seededAnomaly),
     seededAnomaly,
@@ -129,62 +136,114 @@ function makeEvent(truck, decision, now) {
   };
 }
 
-function toSessionRecord(truck, status) {
+function toSessionRecord(truck) {
   return {
     truckNumber: truck.number,
     totalDistanceM: truck.distanceThisShift,
     totalFuelConsumed: truck.fuelConsumedThisShift,
     normLPerHour: truck.fuelBurnRatePerHour,
     deviationPercent: deviationPercent(truck),
-    status,
+    status: 'завершила смену',
   };
 }
 
-// Продвигает уже нацеленную машину (TO_LOAD/LOADING/EXITING) по автомату —
-// используется для всех фаз, кроме ENTERING, где ещё нужно выбрать цель.
+// Продвигает уже нацеленную машину по автомату — БЕСКОНЕЧНЫЙ цикл:
+// TO_LOAD -> LOADING -> EXITING -> UNLOADING -> RETURNING -> ENTERING
+// (снова, диспетчер выбирает новую точку). Возвращает { truck, sessionRecord }:
+// sessionRecord не null только когда на этом переходе закрывается смена
+// (каждый LAPS_PER_SHIFT завершённый рейс) — см. кейс UNLOADING.
 function advanceTargetedTruck(truck, now) {
   switch (truck.phase) {
     case 'TO_LOAD':
       return {
-        ...truck,
-        phase: 'LOADING',
-        position: truck.path[truck.path.length - 1],
-        phaseStartedAt: now,
-        phaseDurationMs: loadingDurationForSeed(randomInRange(LOADING_DURATION_RANGE), truck.seededAnomaly),
-        phaseAccountedMs: 0,
+        truck: {
+          ...truck,
+          phase: 'LOADING',
+          position: truck.path[truck.path.length - 1],
+          phaseStartedAt: now,
+          phaseDurationMs: loadingDurationForSeed(randomInRange(LOADING_DURATION_RANGE), truck.seededAnomaly),
+          phaseAccountedMs: 0,
+        },
+        sessionRecord: null,
       };
     case 'LOADING': {
       const target = loadPointById(truck.targetLoadPointId);
-      const path = pathTo(target.position, EXIT_POINT.position);
+      const path = pathTo(target.position, BELT_POINT.position);
       return {
-        ...truck,
-        phase: 'EXITING',
-        path,
-        position: path[0],
-        phaseStartedAt: now,
-        phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
-        phaseAccountedMs: 0,
+        truck: {
+          ...truck,
+          phase: 'EXITING',
+          path,
+          position: path[0],
+          phaseStartedAt: now,
+          phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
+          phaseAccountedMs: 0,
+        },
+        sessionRecord: null,
       };
     }
     case 'EXITING':
       return {
-        ...truck,
-        phase: 'DONE',
-        position: truck.path[truck.path.length - 1],
-        phaseStartedAt: now,
-        phaseDurationMs: 0,
-        phaseAccountedMs: 0,
+        truck: {
+          ...truck,
+          phase: 'UNLOADING',
+          position: truck.path[truck.path.length - 1],
+          phaseStartedAt: now,
+          phaseDurationMs: randomInRange(UNLOADING_DURATION_RANGE),
+          phaseAccountedMs: 0,
+        },
+        sessionRecord: null,
+      };
+    case 'UNLOADING': {
+      const path = pathTo(BELT_POINT.position, ENTRY_POINT.position);
+      const lapsCompletedThisShift = truck.lapsCompletedThisShift + 1;
+      const shiftComplete = lapsCompletedThisShift % LAPS_PER_SHIFT === 0;
+      // sessionRecord считается ДО сброса счётчиков — фиксирует цифры за
+      // только что завершённую смену (5 рейсов), не разовую поездку.
+      const sessionRecord = shiftComplete ? toSessionRecord({ ...truck, lapsCompletedThisShift }) : null;
+      return {
+        truck: {
+          ...truck,
+          phase: 'RETURNING',
+          path,
+          position: path[0],
+          phaseStartedAt: now,
+          phaseDurationMs: randomInRange(TRAVEL_DURATION_RANGE),
+          phaseAccountedMs: 0,
+          lapsCompletedThisShift,
+          // Пересменка: цифры зафиксированы в sessionRecord выше, счётчики
+          // обнуляются, бак дозаправляется (имитация заправки при смене) —
+          // машина при этом не останавливается и не покидает сцену.
+          ...(shiftComplete
+            ? { distanceThisShift: 0, fuelConsumedThisShift: 0, movingMs: 0, fuelLevel: FUEL_TANK_CAPACITY_L }
+            : {}),
+        },
+        sessionRecord,
+      };
+    }
+    case 'RETURNING':
+      return {
+        truck: {
+          ...truck,
+          phase: 'ENTERING',
+          targetLoadPointId: null,
+          position: truck.path[truck.path.length - 1],
+          phaseStartedAt: now,
+          phaseDurationMs: ENTERING_DURATION_MS,
+          phaseAccountedMs: 0,
+        },
+        sessionRecord: null,
       };
     default:
-      return truck;
+      return { truck, sessionRecord: null };
   }
 }
 
 // Один тик симулятора: продвигает все машины (назначая цель машинам,
-// освободившимся на въезде, через диспетчерский алгоритм), убирает
-// завершившие маршрут (DONE), логирует решения в события и при
-// необходимости добавляет новую машину, поддерживая активных в диапазоне
-// [MIN_ACTIVE_TRUCKS, MAX_ACTIVE_TRUCKS].
+// освободившимся на въезде, через диспетчерский алгоритм), логирует
+// решения в события и записи о завершённых сменах в sessionLog. Бесконечный
+// цикл — ни одна машина никогда не покидает trucks, парк фиксирован
+// (FLEET_SIZE), спавна/деспавна нет.
 export function simulationTick(state, now) {
   let queueCounts = getQueueCounts(state.trucks);
   let scripted = state.scripted;
@@ -226,26 +285,15 @@ export function simulationTick(state, now) {
       continue;
     }
 
-    const targeted = advanceTargetedTruck(truck, now);
-    if (targeted.phase === 'DONE') {
-      newSessionRecords.push(toSessionRecord(targeted, 'завершила смену'));
-    }
+    const { truck: targeted, sessionRecord } = advanceTargetedTruck(truck, now);
+    if (sessionRecord) newSessionRecords.push(sessionRecord);
     advanced.push(targeted);
-  }
-
-  const trucks = advanced.filter((t) => t.phase !== 'DONE');
-  let nextSpawnAt = state.nextSpawnAt;
-  const shouldSpawn = trucks.length < MIN_ACTIVE_TRUCKS
-    || (trucks.length < MAX_ACTIVE_TRUCKS && now >= nextSpawnAt);
-  if (shouldSpawn) {
-    trucks.push(createTruck(now, state.fleetNormLPerHour));
-    nextSpawnAt = now + randomInRange(SPAWN_PAUSE_RANGE);
   }
 
   const events = newEvents.length > 0 ? [...newEvents, ...state.events].slice(0, MAX_EVENTS) : state.events;
   const sessionLog = newSessionRecords.length > 0 ? [...state.sessionLog, ...newSessionRecords] : state.sessionLog;
 
-  return { trucks, nextSpawnAt, events, scripted, sessionLog };
+  return { trucks: advanced, events, scripted, sessionLog };
 }
 
 function initialScriptedState(now, mode) {
@@ -262,7 +310,6 @@ function initialScriptedState(now, mode) {
 // владеющая единственным setInterval на всю симуляцию.
 export const useSimulationStore = create((set, get) => ({
   trucks: [],
-  nextSpawnAt: 0,
   intervalId: null,
   events: [],
   sessionLog: [],
@@ -275,7 +322,7 @@ export const useSimulationStore = create((set, get) => ({
     const now = performance.now();
     const norm = get().fleetNormLPerHour;
     const initial = [];
-    for (let i = 0; i < MIN_ACTIVE_TRUCKS; i++) {
+    for (let i = 0; i < FLEET_SIZE; i++) {
       initial.push(createTruck(now - i * 400, norm));
     }
     const id = setInterval(() => {
@@ -283,7 +330,6 @@ export const useSimulationStore = create((set, get) => ({
     }, TICK_INTERVAL_MS);
     set({
       trucks: initial,
-      nextSpawnAt: now + randomInRange(SPAWN_PAUSE_RANGE),
       intervalId: id,
       scripted: initialScriptedState(now, get().mode),
     });
