@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { statusColorForQueue } from '../simulation/dispatch';
 import { deviationPercent, statusColorForDeviation } from '../simulation/fuel';
 
@@ -7,6 +8,45 @@ const PHASE_LABELS = {
   LOADING: 'грузится',
   EXITING: 'выезжает',
 };
+
+function TruckRow({ truck }) {
+  const [expanded, setExpanded] = useState(false);
+  const dev = deviationPercent(truck);
+  const hasAnomaly = Boolean(truck.anomalyType);
+
+  return (
+    <li className="text-slate-300">
+      <div className="flex justify-between items-center">
+        <span className="flex items-center gap-1">
+          №{truck.number}
+          {hasAnomaly && (
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              className="text-red-400 leading-none"
+              title="Обнаружена аномалия — нажмите для подробностей"
+            >
+              ⚠
+            </button>
+          )}
+        </span>
+        <span className="text-slate-400">{PHASE_LABELS[truck.phase] ?? truck.phase}</span>
+      </div>
+      <div className="flex justify-between text-[11px] text-slate-500">
+        <span>{Math.round(truck.fuelLevel)} л · норма {truck.fuelBurnRatePerHour} л/ч</span>
+        <span style={{ color: statusColorForDeviation(dev) }}>
+          {dev >= 0 ? '+' : ''}
+          {dev.toFixed(1)}%
+        </span>
+      </div>
+      {hasAnomaly && expanded && (
+        <div className="mt-1 text-[11px] text-red-300 bg-red-950/40 border border-red-900 rounded px-2 py-1">
+          {truck.anomalyRecommendation}
+        </div>
+      )}
+    </li>
+  );
+}
 
 export default function DispatcherPanel({ trucks, loadPoints, events, mode, onModeChange }) {
   return (
@@ -38,24 +78,9 @@ export default function DispatcherPanel({ trucks, loadPoints, events, mode, onMo
       <div className="p-3 border-b border-slate-800 overflow-y-auto max-h-48">
         <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Машины ({trucks.length})</div>
         <ul className="space-y-1.5 text-xs">
-          {trucks.map((t) => {
-            const dev = deviationPercent(t);
-            return (
-              <li key={t.id} className="text-slate-300">
-                <div className="flex justify-between">
-                  <span>№{t.number}</span>
-                  <span className="text-slate-400">{PHASE_LABELS[t.phase] ?? t.phase}</span>
-                </div>
-                <div className="flex justify-between text-[11px] text-slate-500">
-                  <span>{Math.round(t.fuelLevel)} л · норма {t.fuelBurnRatePerHour} л/ч</span>
-                  <span style={{ color: statusColorForDeviation(dev) }}>
-                    {dev >= 0 ? '+' : ''}
-                    {dev.toFixed(1)}%
-                  </span>
-                </div>
-              </li>
-            );
-          })}
+          {trucks.map((t) => (
+            <TruckRow key={t.id} truck={t} />
+          ))}
         </ul>
       </div>
 
