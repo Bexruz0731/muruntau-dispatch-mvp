@@ -106,3 +106,22 @@ export function pathLength(path) {
   }
   return total;
 }
+
+// Направление движения (ненормализованный вектор [dx, dz] по осям x/z) в
+// точке t∈[0,1] пути — используется, чтобы довернуть модель машины носом по
+// ходу движения (см. components/scene/Truck.jsx). Высота (y) не участвует —
+// поворот модели только вокруг вертикальной оси. Возвращает null, если
+// сегмент в этой точке вырожден (нулевой длины) — вызывающий код тогда
+// сохраняет прежний курс, а не дёргает модель к (0,0).
+export function pathDirectionAt(path, t) {
+  const segCount = path.length - 1;
+  const clampedT = Math.min(1, Math.max(0, t));
+  const segT = clampedT * segCount;
+  const segIndex = Math.min(segCount - 1, Math.floor(segT));
+  const [ax, , az] = path[segIndex];
+  const [bx, , bz] = path[segIndex + 1];
+  const dx = bx - ax;
+  const dz = bz - az;
+  if (Math.abs(dx) < 1e-6 && Math.abs(dz) < 1e-6) return null;
+  return [dx, dz];
+}

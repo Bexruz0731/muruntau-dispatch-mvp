@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
+import { pathDirectionAt } from '../../simulation/constants';
 
 const CHASSIS_COLOR = '#3a4356';
 const CAB_COLOR = '#232a38';
@@ -49,6 +50,20 @@ export default function Truck({ truck }) {
     const now = performance.now();
     const [x, y, z] = interpolatedPosition(truck, now);
     if (groupRef.current) groupRef.current.position.set(x, y, z);
+
+    if ((truck.phase === 'TO_LOAD' || truck.phase === 'EXITING') && groupRef.current) {
+      const t = Math.min(1, Math.max(0, (now - truck.phaseStartedAt) / truck.phaseDurationMs));
+      const dir = pathDirectionAt(truck.path, t);
+      if (dir) {
+        const [dx, dz] = dir;
+        // Кабина смотрит вдоль локальной -X (см. геометрию ниже: кабина на
+        // x=-1.5, кузов на x=+0.6) — доворачиваем группу вокруг Y так, чтобы
+        // локальная -X совпала с мировым направлением движения (dx, dz).
+        // Проверено численно (localToWorld кабины/кузова против точки впереди
+        // по курсу) — кабина ближе к направлению движения, кузов сзади.
+        groupRef.current.rotation.y = Math.atan2(dz, -dx);
+      }
+    }
 
     const loading = truck.phase === 'LOADING';
     if (progressRef.current) {

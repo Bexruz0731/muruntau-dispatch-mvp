@@ -11,6 +11,7 @@ import {
   groundPosition,
   buildRoutePoints,
   pathLength,
+  pathDirectionAt,
 } from './constants';
 
 describe('LOAD_POINTS', () => {
@@ -108,5 +109,34 @@ describe('pathLength', () => {
   it('считает суммарную длину ломаной по x/z, игнорируя y', () => {
     expect(pathLength([[0, 0, 0], [3, 5, 4]])).toBeCloseTo(5); // треугольник 3-4-5, y игнорируется
     expect(pathLength([[0, 0, 0], [3, 0, 4], [3, 0, 8]])).toBeCloseTo(9); // 5 + 4
+  });
+});
+
+describe('pathDirectionAt', () => {
+  it('возвращает направление сегмента по x/z для t в середине пути', () => {
+    const path = [[0, 0, 0], [10, 5, 0], [10, 5, 10]];
+    // t=0.25 -> середина первого сегмента (0,0,0)->(10,5,0): направление вдоль +x
+    const [dx, dz] = pathDirectionAt(path, 0.25);
+    expect(dx).toBeGreaterThan(0);
+    expect(dz).toBeCloseTo(0);
+  });
+
+  it('переключается на направление следующего сегмента после половины пути', () => {
+    const path = [[0, 0, 0], [10, 5, 0], [10, 5, 10]];
+    // t=0.75 -> середина второго сегмента (10,5,0)->(10,5,10): направление вдоль +z
+    const [dx, dz] = pathDirectionAt(path, 0.75);
+    expect(dx).toBeCloseTo(0);
+    expect(dz).toBeGreaterThan(0);
+  });
+
+  it('зажимает t к [0,1]', () => {
+    const path = [[0, 0, 0], [10, 0, 0]];
+    expect(pathDirectionAt(path, -1)).toEqual(pathDirectionAt(path, 0));
+    expect(pathDirectionAt(path, 2)).toEqual(pathDirectionAt(path, 1));
+  });
+
+  it('возвращает null для вырожденного (нулевой длины) сегмента', () => {
+    const path = [[5, 0, 5], [5, 0, 5]];
+    expect(pathDirectionAt(path, 0.5)).toBeNull();
   });
 });
