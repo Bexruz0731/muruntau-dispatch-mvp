@@ -10,6 +10,7 @@ import {
   terrainHeightAt,
   groundPosition,
   buildRoutePoints,
+  pathLength,
 } from './constants';
 
 describe('LOAD_POINTS', () => {
@@ -100,5 +101,12 @@ describe('buildRoutePoints', () => {
 
   it('по умолчанию возвращает 9 точек (steps=8)', () => {
     expect(buildRoutePoints([0, 10], [10, 0], 0, 0)).toHaveLength(9);
+  });
+});
+
+describe('pathLength', () => {
+  it('считает суммарную длину ломаной по x/z, игнорируя y', () => {
+    expect(pathLength([[0, 0, 0], [3, 5, 4]])).toBeCloseTo(5); // треугольник 3-4-5, y игнорируется
+    expect(pathLength([[0, 0, 0], [3, 0, 4], [3, 0, 8]])).toBeCloseTo(9); // 5 + 4
   });
 });

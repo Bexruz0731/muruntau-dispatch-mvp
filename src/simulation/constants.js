@@ -93,3 +93,16 @@ export function buildRoutePoints(fromXZ, toXZ, fromY, toY, steps = 8) {
   }
   return points;
 }
+
+// Суммарная длина ломаной по осям x/z (высота игнорируется — это дистанция
+// по земле, не по фактической 3D-траектории). Используется для начисления
+// пробега/топлива в simulation/fuel.js.
+export function pathLength(path) {
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    const [x1, , z1] = path[i - 1];
+    const [x2, , z2] = path[i];
+    total += Math.hypot(x2 - x1, z2 - z1);
+  }
+  return total;
+}
