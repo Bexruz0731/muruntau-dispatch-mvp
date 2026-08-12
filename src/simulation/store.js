@@ -7,6 +7,7 @@ import {
   FALLBACK_FUEL_NORM_L_PER_HOUR,
   FUEL_TANK_CAPACITY_L,
 } from './fuel';
+import { rollSeededAnomaly, loadingDurationForSeed, actualBurnRateForSeed, detectAnomaly } from './anomaly';
 
 export const TRUCK_HEIGHT_OFFSET = 0.9; // совпадает с зазором машины над землёй в Truck.jsx
 export const MIN_ACTIVE_TRUCKS = 6;
@@ -61,10 +62,15 @@ export function getQueueCounts(trucks) {
 
 // Новая машина появляется на въезде БЕЗ цели (её назначит диспетчерский
 // алгоритм — см. decideTarget), с полным баком и нормой расхода автопарка.
+// ~25% машин получают засеянную аномалию (см. simulation/anomaly.js) — это
+// меняет только actualBurnRatePerHour (MECHANICAL_FAULT) или длительность
+// будущей LOADING-фазы через seededAnomaly (IDLE_OVERRUN, применяется в
+// advanceTargetedTruck при переходе TO_LOAD -> LOADING).
 export function createTruck(now) {
   idCounter += 1;
   numberCounter += 1;
   const entryGround = groundPosition(ENTRY_POINT.position);
+  const seededAnomaly = rollSeededAnomaly();
   return {
     id: idCounter,
     number: String(10 + (numberCounter % 90)).padStart(2, '0'),
@@ -80,7 +86,10 @@ export function createTruck(now) {
     distanceThisShift: 0,
     movingMs: 0,
     fuelBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR,
-    actualBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR, // этап 5 (anomaly.js) сможет отклонить от нормы
+    actualBurnRatePerHour: actualBurnRateForSeed(FALLBACK_FUEL_NORM_L_PER_HOUR, seededAnomaly),
+    seededAnomaly,
+    anomalyType: null,
+    anomalyRecommendation: null,
   };
 }
 
@@ -138,7 +147,7 @@ function advanceTargetedTruck(truck, now) {
         phase: 'LOADING',
         position: truck.path[truck.path.length - 1],
         phaseStartedAt: now,
-        phaseDurationMs: randomInRange(LOADING_DURATION_RANGE),
+        phaseDurationMs: loadingDurationForSeed(randomInRange(LOADING_DURATION_RANGE), truck.seededAnomaly),
         phaseAccountedMs: 0,
       };
     case 'LOADING': {
@@ -181,7 +190,10 @@ export function simulationTick(state, now) {
 
   const advanced = [];
   for (const rawTruck of state.trucks) {
-    const truck = accrueFuelAndDistance(rawTruck, now);
+    let truck = accrueFuelAndDistance(rawTruck, now);
+    const anomaly = detectAnomaly(truck, LOADING_DURATION_RANGE[1]);
+    truck = { ...truck, anomalyType: anomaly.anomalyType, anomalyRecommendation: anomaly.anomalyRecommendation };
+
     const elapsed = now - truck.phaseStartedAt;
     if (elapsed < truck.phaseDurationMs) {
       advanced.push(truck);

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   createTruck,
   simulationTick,
@@ -180,5 +180,79 @@ describe('учёт топлива и пробега', () => {
     expect(state.sessionLog[0].totalFuelConsumed).toBeGreaterThan(0);
     expect(state.sessionLog[0].totalDistanceM).toBeGreaterThan(0);
     expect(state.sessionLog[0].normLPerHour).toBe(FALLBACK_FUEL_NORM_L_PER_HOUR);
+  });
+});
+
+describe('аномалии', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('засевает IDLE_OVERRUN, если оба броска Math.random попадают в нужные диапазоны', () => {
+    vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.1) // < ANOMALY_SEED_PROBABILITY (0.25) -> аномалия есть
+      .mockReturnValueOnce(0.2) // < 0.5 -> IDLE_OVERRUN
+      .mockReturnValue(0.5); // остальные вызовы (например, randomInRange для нормальных таймингов) — нейтральные
+    const truck = createTruck(0);
+    expect(truck.seededAnomaly).toBe('IDLE_OVERRUN');
+    expect(truck.actualBurnRatePerHour).toBe(truck.fuelBurnRatePerHour); // IDLE_OVERRUN не меняет ставку
+  });
+
+  it('засевает MECHANICAL_FAULT и повышает actualBurnRatePerHour относительно нормы', () => {
+    vi.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.1) // аномалия есть
+      .mockReturnValueOnce(0.9) // >= 0.5 -> MECHANICAL_FAULT
+      .mockReturnValue(0.5);
+    const truck = createTruck(0);
+    expect(truck.seededAnomaly).toBe('MECHANICAL_FAULT');
+    expect(truck.actualBurnRatePerHour).toBeGreaterThan(truck.fuelBurnRatePerHour);
+  });
+
+  it('не засевает аномалию, если первый бросок выше порога', () => {
+    vi.spyOn(Math, 'random').mockReturnValue(0.9);
+    const truck = createTruck(0);
+    expect(truck.seededAnomaly).toBeNull();
+    expect(truck.actualBurnRatePerHour).toBe(truck.fuelBurnRatePerHour);
+    expect(truck.anomalyType).toBeNull();
+  });
+
+  it('simulationTick помечает IDLE_OVERRUN у машины, застрявшей на LOADING дольше нормы', () => {
+    const base = createTruck(0);
+    const truck = {
+      ...base,
+      phase: 'LOADING',
+      targetLoadPointId: LOAD_POINTS[0].id,
+      path: [[0, 0, 0], [0, 0, 0]],
+      phaseStartedAt: 0,
+      phaseDurationMs: 40000, // раздутая LOADING-фаза, как у настоящего IDLE_OVERRUN
+      phaseAccountedMs: 0,
+      seededAnomaly: 'IDLE_OVERRUN',
+    };
+    const state = { trucks: [truck], nextSpawnAt: 1e9, events: [], sessionLog: [], scripted: EMPTY_SCRIPTED };
+    const result = simulationTick(state, 20000); // 20с — больше 12с (8000*1.5), но меньше 40с
+    const advanced = result.trucks.find((t) => t.id === truck.id);
+    expect(advanced.phase).toBe('LOADING');
+    expect(advanced.anomalyType).toBe('IDLE_OVERRUN');
+    expect(advanced.anomalyRecommendation).toContain(`№${truck.number}`);
+  });
+
+  it('simulationTick помечает MECHANICAL_FAULT у машины с повышенным фактическим расходом в TO_LOAD', () => {
+    const base = createTruck(0);
+    const truck = {
+      ...base,
+      phase: 'TO_LOAD',
+      targetLoadPointId: LOAD_POINTS[0].id,
+      path: [[0, 0, 0], [1000, 0, 0]],
+      phaseStartedAt: 0,
+      phaseDurationMs: 10000,
+      phaseAccountedMs: 0,
+      actualBurnRatePerHour: base.fuelBurnRatePerHour * 1.5,
+    };
+    const state = { trucks: [truck], nextSpawnAt: 1e9, events: [], sessionLog: [], scripted: EMPTY_SCRIPTED };
+    const result = simulationTick(state, 5000); // половина фазы
+    const advanced = result.trucks.find((t) => t.id === truck.id);
+    expect(advanced.phase).toBe('TO_LOAD');
+    expect(advanced.anomalyType).toBe('MECHANICAL_FAULT');
+    expect(advanced.anomalyRecommendation).toContain(`№${truck.number}`);
   });
 });
