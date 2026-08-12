@@ -1,19 +1,21 @@
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { groundPosition } from '../../simulation/constants';
+import { statusColorForQueue } from '../../simulation/dispatch';
 
 const POLE_HEIGHT = 4.2;
 const CAP_SIZE = 0.55;
 
 export default function LoadPointMarker({ name, position, color, queueCount = 0 }) {
   const [x, y, z] = groundPosition(position);
+  const ringColor = statusColorForQueue(queueCount);
 
   return (
     <group position={[x, y, z]}>
-      {/* landing pad ring, flat on the ground, glowing against the dark terrain */}
+      {/* landing pad ring — цвет отражает загрузку точки (зелёный/жёлтый/красный) */}
       <mesh position={[0, 0.03, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.55, 0.8, 32]} />
-        <meshBasicMaterial color={color} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} />
+        <meshBasicMaterial color={ringColor} transparent opacity={0.85} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
 
       {/* thin pole */}
