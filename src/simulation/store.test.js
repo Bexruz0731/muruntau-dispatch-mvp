@@ -1,14 +1,24 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+
+vi.mock('../lib/anythingllm', () => ({
+  chatWithWorkspace: vi.fn(),
+  resolveWorkspaceSlug: (preferred, fallback) => preferred || fallback || null,
+  WORKSPACE_DOCS_SLUG: null,
+  WORKSPACE_DISPATCH_SLUG: null,
+}));
+
 import {
   createTruck,
   simulationTick,
   resetCounters,
   getQueueCounts,
+  useSimulationStore,
   MAX_ACTIVE_TRUCKS,
   SCRIPTED_CONGESTION_TRUCKS,
 } from './store';
 import { LOAD_POINTS } from './constants';
-import { FALLBACK_FUEL_NORM_L_PER_HOUR, FUEL_TANK_CAPACITY_L } from './fuel';
+import { FALLBACK_FUEL_NORM_L_PER_HOUR, FUEL_TANK_CAPACITY_L, FUEL_NORM_RAG_PROMPT } from './fuel';
+import { chatWithWorkspace } from '../lib/anythingllm';
 
 const EMPTY_SCRIPTED = { active: false, remaining: 0, targetId: null, triggerAt: 0 };
 
@@ -254,5 +264,60 @@ describe('аномалии', () => {
     expect(advanced.phase).toBe('TO_LOAD');
     expect(advanced.anomalyType).toBe('MECHANICAL_FAULT');
     expect(advanced.anomalyRecommendation).toContain(`№${truck.number}`);
+  });
+});
+
+describe('createTruck с нестандартной нормой', () => {
+  it('использует переданную норму, а не FALLBACK, если она указана', () => {
+    const truck = createTruck(0, 130);
+    expect(truck.fuelBurnRatePerHour).toBe(130);
+  });
+
+  it('без явной нормы использует FALLBACK_FUEL_NORM_L_PER_HOUR (обратная совместимость)', () => {
+    const truck = createTruck(0);
+    expect(truck.fuelBurnRatePerHour).toBe(FALLBACK_FUEL_NORM_L_PER_HOUR);
+  });
+});
+
+describe('simulationTick — распространение fleetNormLPerHour на новые машины', () => {
+  it('спавнит новые машины с нормой из state.fleetNormLPerHour', () => {
+    const state = {
+      trucks: [],
+      nextSpawnAt: 0,
+      events: [],
+      sessionLog: [],
+      scripted: EMPTY_SCRIPTED,
+      fleetNormLPerHour: 130,
+    };
+    const result = simulationTick(state, 0);
+    expect(result.trucks[0].fuelBurnRatePerHour).toBe(130);
+  });
+});
+
+describe('fetchFleetNorm', () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('обновляет fleetNormLPerHour при успешном ответе с распознаваемым числом', async () => {
+    chatWithWorkspace.mockResolvedValueOnce({ ok: true, error: null, text: 'Норма — 125 л/ч', sources: [] });
+    useSimulationStore.setState({ fleetNormLPerHour: FALLBACK_FUEL_NORM_L_PER_HOUR });
+    await useSimulationStore.getState().fetchFleetNorm();
+    expect(useSimulationStore.getState().fleetNormLPerHour).toBe(125);
+    expect(chatWithWorkspace).toHaveBeenCalledWith(null, FUEL_NORM_RAG_PROMPT);
+  });
+
+  it('тихо оставляет fallback-норму, если AnythingLLM недоступен', async () => {
+    chatWithWorkspace.mockResolvedValueOnce({ ok: false, error: 'network', text: null, sources: [] });
+    useSimulationStore.setState({ fleetNormLPerHour: FALLBACK_FUEL_NORM_L_PER_HOUR });
+    await useSimulationStore.getState().fetchFleetNorm();
+    expect(useSimulationStore.getState().fleetNormLPerHour).toBe(FALLBACK_FUEL_NORM_L_PER_HOUR);
+  });
+
+  it('тихо оставляет fallback-норму, если текст ответа не парсится в число', async () => {
+    chatWithWorkspace.mockResolvedValueOnce({ ok: true, error: null, text: 'не знаю', sources: [] });
+    useSimulationStore.setState({ fleetNormLPerHour: FALLBACK_FUEL_NORM_L_PER_HOUR });
+    await useSimulationStore.getState().fetchFleetNorm();
+    expect(useSimulationStore.getState().fleetNormLPerHour).toBe(FALLBACK_FUEL_NORM_L_PER_HOUR);
   });
 });

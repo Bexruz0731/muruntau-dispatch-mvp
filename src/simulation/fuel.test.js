@@ -4,6 +4,7 @@ import {
   actualLPerHour,
   deviationPercent,
   statusColorForDeviation,
+  parseFuelNormLPerHour,
   FALLBACK_FUEL_NORM_L_PER_HOUR,
   FUEL_TANK_CAPACITY_L,
 } from './fuel';
@@ -97,5 +98,24 @@ describe('actualBurnRatePerHour vs fuelBurnRatePerHour', () => {
     let truck = makeTruck({ actualBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR * 1.5 });
     truck = accrueFuelAndDistance(truck, 3600000); // час движения
     expect(deviationPercent(truck)).toBeCloseTo(50); // +50%
+  });
+});
+
+describe('parseFuelNormLPerHour', () => {
+  it('распознаёт целое число перед "л/ч"', () => {
+    expect(parseFuelNormLPerHour('Нормативный расход — 115 л/ч.')).toBe(115);
+  });
+
+  it('распознаёт число с десятичной запятой', () => {
+    expect(parseFuelNormLPerHour('около 112,5 л/ч')).toBeCloseTo(112.5);
+  });
+
+  it('возвращает null, если в тексте нет распознаваемого числа с "л/ч"', () => {
+    expect(parseFuelNormLPerHour('Точный расход не указан в документации.')).toBeNull();
+  });
+
+  it('возвращает null для пустого/отсутствующего текста', () => {
+    expect(parseFuelNormLPerHour('')).toBeNull();
+    expect(parseFuelNormLPerHour(null)).toBeNull();
   });
 });

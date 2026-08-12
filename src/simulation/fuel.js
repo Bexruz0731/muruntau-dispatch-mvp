@@ -72,3 +72,20 @@ export function statusColorForDeviation(pct) {
   if (abs > FUEL_DEVIATION_GREEN_MAX) return '#eab308';
   return '#22c55e';
 }
+
+// Промпт разового RAG-запроса нормы расхода при загрузке страницы карты
+// (ТЗ, раздел "Топливо") — вынесен сюда, а не в store.js, чтобы вся
+// топливная терминология жила в одном модуле.
+export const FUEL_NORM_RAG_PROMPT = 'Какой нормативный расход топлива в час у БелАЗ-75131?';
+
+// Простой regex-парсинг ответа LLM на число перед "л/ч" (с пробелами/без,
+// с точкой или запятой как разделителем дробной части). Возвращает null,
+// если распознать не удалось — вызывающий код тогда тихо остаётся на
+// FALLBACK_FUEL_NORM_L_PER_HOUR (ТЗ: "если парсинг не удался... — fallback").
+export function parseFuelNormLPerHour(text) {
+  if (!text) return null;
+  const match = text.match(/(\d+(?:[.,]\d+)?)\s*л\s*\/?\s*ч/i);
+  if (!match) return null;
+  const value = parseFloat(match[1].replace(',', '.'));
+  return Number.isFinite(value) && value > 0 ? value : null;
+}

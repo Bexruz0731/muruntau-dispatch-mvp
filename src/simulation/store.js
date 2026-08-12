@@ -8,6 +8,8 @@ import {
   FUEL_TANK_CAPACITY_L,
 } from './fuel';
 import { rollSeededAnomaly, loadingDurationForSeed, actualBurnRateForSeed, detectAnomaly } from './anomaly';
+import { parseFuelNormLPerHour, FUEL_NORM_RAG_PROMPT } from './fuel';
+import { chatWithWorkspace, resolveWorkspaceSlug, WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG } from '../lib/anythingllm';
 
 export const TRUCK_HEIGHT_OFFSET = 0.9; // совпадает с зазором машины над землёй в Truck.jsx
 export const MIN_ACTIVE_TRUCKS = 6;
@@ -66,7 +68,7 @@ export function getQueueCounts(trucks) {
 // меняет только actualBurnRatePerHour (MECHANICAL_FAULT) или длительность
 // будущей LOADING-фазы через seededAnomaly (IDLE_OVERRUN, применяется в
 // advanceTargetedTruck при переходе TO_LOAD -> LOADING).
-export function createTruck(now) {
+export function createTruck(now, normLPerHour = FALLBACK_FUEL_NORM_L_PER_HOUR) {
   idCounter += 1;
   numberCounter += 1;
   const entryGround = groundPosition(ENTRY_POINT.position);
@@ -85,8 +87,8 @@ export function createTruck(now) {
     fuelConsumedThisShift: 0,
     distanceThisShift: 0,
     movingMs: 0,
-    fuelBurnRatePerHour: FALLBACK_FUEL_NORM_L_PER_HOUR,
-    actualBurnRatePerHour: actualBurnRateForSeed(FALLBACK_FUEL_NORM_L_PER_HOUR, seededAnomaly),
+    fuelBurnRatePerHour: normLPerHour,
+    actualBurnRatePerHour: actualBurnRateForSeed(normLPerHour, seededAnomaly),
     seededAnomaly,
     anomalyType: null,
     anomalyRecommendation: null,
@@ -235,7 +237,7 @@ export function simulationTick(state, now) {
   const shouldSpawn = trucks.length < MIN_ACTIVE_TRUCKS
     || (trucks.length < MAX_ACTIVE_TRUCKS && now >= nextSpawnAt);
   if (shouldSpawn) {
-    trucks.push(createTruck(now));
+    trucks.push(createTruck(now, state.fleetNormLPerHour));
     nextSpawnAt = now + randomInRange(SPAWN_PAUSE_RANGE);
   }
 
@@ -265,13 +267,15 @@ export const useSimulationStore = create((set, get) => ({
   sessionLog: [],
   mode: 'random',
   scripted: { active: false, remaining: 0, targetId: null, triggerAt: 0 },
+  fleetNormLPerHour: FALLBACK_FUEL_NORM_L_PER_HOUR,
 
   startSimulation() {
     if (get().intervalId) return;
     const now = performance.now();
+    const norm = get().fleetNormLPerHour;
     const initial = [];
     for (let i = 0; i < MIN_ACTIVE_TRUCKS; i++) {
-      initial.push(createTruck(now - i * 400));
+      initial.push(createTruck(now - i * 400, norm));
     }
     const id = setInterval(() => {
       set((state) => simulationTick(state, performance.now()));
@@ -292,5 +296,17 @@ export const useSimulationStore = create((set, get) => ({
 
   setMode(mode) {
     set({ mode, scripted: initialScriptedState(performance.now(), mode) });
+  },
+
+  // Разовый RAG-запрос нормы расхода при загрузке страницы (ТЗ, раздел
+  // "Топливо"): не блокирует старт симуляции, при недоступности AnythingLLM
+  // или нераспознаваемом ответе — тихо остаётся на fleetNormLPerHour, с
+  // которым стор уже стартовал (FALLBACK_FUEL_NORM_L_PER_HOUR).
+  async fetchFleetNorm() {
+    const slug = resolveWorkspaceSlug(WORKSPACE_DISPATCH_SLUG, WORKSPACE_DOCS_SLUG);
+    const result = await chatWithWorkspace(slug, FUEL_NORM_RAG_PROMPT);
+    if (!result.ok) return;
+    const parsed = parseFuelNormLPerHour(result.text);
+    if (parsed) set({ fleetNormLPerHour: parsed });
   },
 }));

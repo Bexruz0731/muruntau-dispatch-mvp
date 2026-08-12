@@ -8,10 +8,12 @@ import { useSimulationStore } from './simulation/store';
 
 export default function App() {
   const startSimulation = useSimulationStore((s) => s.startSimulation);
+  const fetchFleetNorm = useSimulationStore((s) => s.fetchFleetNorm);
 
   useEffect(() => {
     startSimulation();
-  }, [startSimulation]);
+    fetchFleetNorm();
+  }, [startSimulation, fetchFleetNorm]);
 
   return (
     <BrowserRouter>
